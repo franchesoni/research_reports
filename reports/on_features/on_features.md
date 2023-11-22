@@ -35,3 +35,22 @@ To make things efficient we can use EfficientViT. A small version could suffice,
 
 The main issue is how many features to predict. More are better, but they increase the memory. I was thinking about multi-resolution feature maps. These can be built in powers of 2. Giving x2 more importance to one map x2 less resolved implies having x4 more features. This means that the number of features at each resolution is the same. That should work.
 
+### Related work
+Enzo Ferrante suggested me to look at _"Semantic Instance Segmentation with a Discriminative Loss Function"_, a paper from CVPR2017 which does something very similar to what I wanted to do. There are a few key points:
+- their loss is not only constrative but also regularizes the output and adds hinge loss, i.e. it only acts on a ball. The hinge part is a great idea.
+- the features are full resolution and 8 in number
+- they do instance segmentation for which they previously rely on semantic segmentation to handle multiclasses
+- they suppossedly can do (but not try) classification or semantic segmentation via doing the contrastive loss on a mini-batch in a class-consistent way
+
+Takeaways: 1. triplet hinge loss, 2. train on a dataset of instances
+
+
+## Minimum viable product (MVP)
+
+We'll use EfficientViT. There are other efficient transformer backbones around but this is especially good in segmentation and was trained using segment anything as target. On top it's supposed to handle high resolution images (because of the downsampling to 512x512). 
+
+1. clone the efficientvit repo (around 50MB)
+`git clone https://github.com/mit-han-lab/efficientvit.git`
+2. download weights for smaller SAM-like model and move it to (`assets/checkpoints/sam`)
+`gdown --id "1AiaX67kT-TX5yr0wOZn51jICj-k5aBmx"`
+     82 Expects a numpy array with shape HxWxC in uint8 format.
