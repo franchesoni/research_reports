@@ -54,3 +54,16 @@ We'll use EfficientViT. There are other efficient transformer backbones around b
 2. download weights for smaller SAM-like model and move it to (`assets/checkpoints/sam`)
 `gdown --id "1AiaX67kT-TX5yr0wOZn51jICj-k5aBmx"`
      82 Expects a numpy array with shape HxWxC in uint8 format.
+
+## The plan (22 Nov)
+
+Here's the plan:
+- **dataset:** use SA-1B, a big dataset with okish masks and natural images. The masks corresponds to objects, parts and subparts, but they don't cover the whole image. This dataset should serve as baseline and finetuning could be done later with ood datasets or some that present finer masks.
+- **architecture:** use an efficientvit (which is the most modern and performing architecture) followed by some simple mbconv decode stages. For each decode stage we pixelshuffle to map to a specific resolution. We don't use all the channels because "Vision Transformers need Registers", but only multiples of 3 (3 for full res, 12 for x2 ds res, and so on...). Each resolved feature map is followed by a sigmoid, making features be colors in [0,1]
+- **loss:** as in the instance seg paper, the loss will be a pull loss for mask features too far away from the avg mask feature, and a push loss for mask centers (or features corresponding to different masks) too close to each other. There should be one loss for each resolution with appropriate weighting (less resolved counts more)
+- **engineering:** train on a 8-gpu node.
+- **inference:** clustering can be done at different resolutions. Each resolution gives us a different distance mesh that could be combined. This way we can do clustering or other distance-based stuff
+
+
+
+
