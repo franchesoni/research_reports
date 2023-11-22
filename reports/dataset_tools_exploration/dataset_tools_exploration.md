@@ -143,6 +143,152 @@ We filter by "image", "mask" and sort by "size". Now we start looking at each on
 
 
 
+# An incremental benchmark
+
+We'd like to benchmark, incrementally, different methods for obtaining an image segmentor. For that we characterize the different datasets and order them. The idea is that each dataset adds a new challenge.
+
+Let us classify the dataset by:
+- domain:
+    - in domain
+    - new domain
+    - domain already considered
+- number of classes:
+    - single class
+    - multi class
+- number of instances per class and image:
+    - many
+    - few (less than 5)
+- has empty masks:
+    - yes
+    - no
+- image size:
+    - big (>600px side)
+    - small
+- number of examples:
+    - high (>500)
+    - low (<500)
+- object size:
+    - big / medium
+    - small
+- masks:
+    - present fine structures
+    - relatively coarse
+- type:
+    - anomaly
+    - object
+- spatially predictable:
+    - yes
+    - no
+- scale consistency: 
+    - consistent scale
+    - variable scale
+- real vs synthetic
+- needs contextual information:
+    - yes
+    - no
+- redundancy on dataset:
+    - no redundancy
+    - some redundancy (e.g. video frames)
+- lightning / weather:
+    - controlled
+    - varied
+- diversity of scenes:
+    - homogeneous
+    - heterogeneous
+- clutter:
+    - cluttered: overlaps, complex background
+    - non-cluttered: clear separation, simple backgrounds
+- difficulty:
+    - easy (can be solved with traditional image processing)
+    - hard (more semantic, high level criteria is needed)
+
+Some of these criteria can be measure quantitatively while some other can't. 
+
+Quantitative measures:
+- Number of classes (1 or more)
+- Instances per class and image (less or more than 5)
+- Has empty masks (more than 5% of the dataset)
+- Image size (more or less than 262144px)
+- Number of images in the train dataset (less or more than 100)
+- Object size (convex hull size as % of the image px)
+- Scale consistency (std of the object size percentages)
+- Clutter (canny pixels as percentage of the image)
+- Spatial predictability (entropy of spatial map)
+
+Qualitative measures:
+- Domain
+- Redundancy / diversity
+- Difficulty
+- Anomaly or Object
+- Real vs. Synthetic
+- Needs context?
+
+
+Let's go for the qualitative metrics over the datasets ordered by training set size:
+|dataset|domain|diversity|difficulty|anomaly|synthetic|contextual|
+|---|---|---|---|---|---|---|
+|chase-db1|biomedical|low|medium|false|false|false|
+|carrot-weed|agriculture|low|high|false|false|false|
+|mangonet|agriculture|low|medium|false|false|false|
+|supervisely-hrda-plants-demo|agriculture|low|high|false|false|false|
+|glas@miccai'2015:-gland-segmentation|biomedical|medium|high|false|false|false|
+|panoramic-dental-x-rays|biomedical|low|low|false|false|false|
+|wgisd|agriculture|low|medium|false|false|false|
+|concrete-crack-segmentation|industrial|low|medium|true|false|true|
+|emps|biomedical|medium|medium|false|false|false|
+|coffee-leaf-biotic-stress|agriculture|low|low|true|false|false|
+|alfalfa-roots|agriculture|low|low|false|false|context|
+|supervisely-synthetic-crack-segmentation|industrial|high|high|true|true|true|
+|msd|industrial|low|medium|true|false|true|
+|water-meters|industrial|medium|medium|false|false|false|
+|suim|underwater|high|high|false|false|true|
+|full-body-tiktok-dancing|natural|high|high|false|false|false|
+|kolektorsdd2|industrial|medium|medium|true|false|true|
+|accurate-nevus-shapes|biomedical|medium|medium|true|false|true|
+|aeroscapes|remote|low|high|false|false|false|
+|fpic-component|industrial|medium|medium|false|false|true|
+|polypgen|biomedical|medium|high|false|false|true|
+|accurate-drone-shapes|natural|medium|medium|true|false|true|
+|synthetic-plants|agriculture|medium|high|false|true|true|
+|skin-cancer-(ham10000)|biomedical|medium|high|false|false|true|
+|cihp|natural|high|high|false|false|true|
+
+
+The proposed order is:
+- tiktok. Difficulties: semantic, diverse backgrounds.
+- nevus. Difficulties: new domain
+- polypgen. Difficulties: new domain
+- water-meters. Difficulties: new domain, more variability
+- drone. Difficulties: small objects
+- dental. Difficulties: x-ray, spatially trivial
+- emps. Difficulties: diversity, ignore OCR
+- mangonet. Difficulties: multiple instances
+- wgisd. Difficulties: multiple instances, color doesn't work
+- gland. Difficulties: variability, context
+- kolektor. Difficulties: anomaly, empty masks
+
+now with fine structures:
+- alfalfa roots. Difficulties: fine structures
+- supsyncrack. Difficulties: variability, fine structures
+- chase. Difficulties: fine structures on big images
+
+now multiclass:
+- coffee leaves. Almost binary.
+- suim. Out of domain, complex
+- msd. Anomalies, two are small.
+- fpic. Out-of-domain, many classes.
+- synplants. Synthetic, complex.
+- aeroscapes. Complex, redundant.
+- hrda. Hard, low data. 
+- carrot-weed. last one
+
+
+
+
+
+
+
+
 
 
 
