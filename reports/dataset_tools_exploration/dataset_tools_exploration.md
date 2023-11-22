@@ -281,6 +281,8 @@ now multiclass:
 - aeroscapes. Complex, redundant.
 - hrda. Hard, low data. 
 - carrot-weed. last one
+- skin cancer. hard, requires expert knowledge.
+- cihp. Biggest one.
 
 
 
