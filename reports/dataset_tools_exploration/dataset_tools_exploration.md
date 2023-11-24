@@ -255,14 +255,14 @@ Let's go for the qualitative metrics over the datasets ordered by training set s
 
 
 The proposed order is:
-- tiktok. Difficulties: semantic, diverse backgrounds.
-- nevus. Difficulties: new domain
-- polypgen. Difficulties: new domain
-- water-meters. Difficulties: new domain, more variability
-- drone. Difficulties: small objects
-- dental. Difficulties: x-ray, spatially trivial
-- emps. Difficulties: diversity, ignore OCR
-- mangonet. Difficulties: multiple instances
+- tiktok. Difficulties: high level semantics, diverse backgrounds. (instances)
+- nevus. Difficulties: new domain (instances)
+- polypgen. Difficulties: new domain, empty masks (instances)
+- water-meters. Difficulties: new domain, more variability (binary)
+- drone. Difficulties: small objects (binary)
+- dental. Difficulties: x-ray, spatially trivial (binary)
+- emps. Difficulties: diversity, ignore OCR (instance)
+- mangonet. Difficulties: multiple instances (instance)
 - wgisd. Difficulties: multiple instances, color doesn't work
 - gland. Difficulties: variability, context
 - kolektor. Difficulties: anomaly, empty masks
