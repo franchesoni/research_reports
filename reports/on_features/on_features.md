@@ -65,5 +65,8 @@ Here's the plan:
 - **inference:** clustering can be done at different resolutions. Each resolution gives us a different distance mesh that could be combined. This way we can do clustering or other distance-based stuff
 
 
+## Minimum viable product (MVP) 2: gray-masks
+
+Say we have a network, starting or not from sam and trained on rectangles of different sizes and colors. What we would like to do is to create a grayscale image where the rectangles have different gray levels. The solution should be a simple operation mapping colors to grayscale. The main thing is that we don't really care how close the rectangles are in color space, but we always map them to be separate in luminance space. If we e consider 10 gray
 
 

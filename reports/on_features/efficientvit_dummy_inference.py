@@ -37,15 +37,16 @@ def custom_loss(features, masks, threshold_in=0.05, threshold_out=0.15):
         features_inside_mask = features[:, :, mask.bool()]  # 1, C, M
         features_outside_mask = features[:, :, ~mask.bool()]  
 
+        pull_loss, push_loss1, push_loss2 = torch.tensor(0).float(), torch.tensor(0).float(), torch.tensor(0).float()
         if features_inside_mask.numel() > 0:
             mean_feature = torch.mean(features_inside_mask, dim=2, keepdim=True)  # 1, C, 1
             dist_in = torch.norm(features_inside_mask - mean_feature, dim=1)
             pull_loss = torch.mean(torch.clamp(dist_in - threshold_in, min=0))
             means.append(mean_feature.squeeze())
     
-        if features_outside_mask.numel() > 0:
-            dist_out = torch.norm(features_outside_mask - mean_feature, dim=1)
-            push_loss1 = torch.mean(torch.clamp(threshold_out - dist_out, min=0))
+            if features_outside_mask.numel() > 0:
+                dist_out = torch.norm(features_outside_mask - mean_feature, dim=1)
+                push_loss1 = torch.mean(torch.clamp(threshold_out - dist_out, min=0))
 
         loss += pull_loss + push_loss1
 
@@ -54,9 +55,12 @@ def custom_loss(features, masks, threshold_in=0.05, threshold_out=0.15):
         push_loss2 = torch.mean(torch.clamp(threshold_out - means_diff, min=0))
     loss += push_loss2
         
-    # print(pull_loss.item(), push_loss1.item(), push_loss2.item())
-    print(#pull_loss.item(), push_loss1.item(), 
-        push_loss2.item())
+    try:
+        print(pull_loss.item(), push_loss1.item(), push_loss2.item())
+    except AttributeError:
+        breakpoint()
+    # print(#pull_loss.item(), push_loss1.item(), 
+    #     push_loss2.item())
     return loss
 
 
@@ -98,33 +102,50 @@ class MaskFeatureDecoder(torch.nn.Module):
 
 if __name__ == '__main__':
     # Example usage
-    np.random.seed(0)
-    synthetic_image, masks = create_synthetic_image(512, 512, 2)
-    Image.fromarray(synthetic_image).save('img.png')
-
     evitsam = create_sam_model(name='l0', weight_url='efficientvit/assets/checkpoints/sam/l0.pt').eval()
-    decoder = MaskFeatureDecoder()
 
+    np.random.seed(0)
+    syn_imgs, maskss, embeddings = [], [], []
+    for batch in range(3):
+        for num in range(2, 10):
+            synthetic_image, masks = create_synthetic_image(512, 512, 2)
+            syn_imgs.append(synthetic_image)
+            maskss.append(masks)
+            with torch.no_grad():
+                tinput = evitsam.transform(synthetic_image)[None]
+                embedding = evitsam.image_encoder(tinput)
+            embeddings.append(embedding)
+            print(f'batch = {batch}, num = {num}')
+    val_synthetic_image, val_masks = create_synthetic_image(512, 512, 2)
+    Image.fromarray(val_synthetic_image).save('img.png')
+
+    decoder = MaskFeatureDecoder()
     optimizer = torch.optim.Adam(decoder.parameters(), lr=0.001)
     epochs = 100  # Number of epochs
 
     for epoch in range(epochs):
-        optimizer.zero_grad()
-
-        # Assuming synthetic_image and masks are already defined
-        tinput = evitsam.transform(synthetic_image)[None]
+        tinput = evitsam.transform(val_synthetic_image)[None]
         embedding = evitsam.image_encoder(tinput)
         decoded = decoder(embedding)
-        
         # Compute loss
-        loss = custom_loss(decoded, masks)
+        loss = custom_loss(decoded, val_masks)
 
-        # Backpropagation
-        loss.backward()
-        for name, param in decoder.named_parameters():
-            if param.requires_grad:
-                print(f"Gradient of {name}: {param.grad.sum()}")
-        optimizer.step()
-
-        # print(f"Epoch {epoch+1}, Loss: {loss.item()}")
+        print(f"Epoch {epoch+1}, Val-Loss: {loss.item()}")
         Image.fromarray((decoded[0].detach().permute(1,2,0).numpy()*255).astype(np.uint8)).save(f'output_{epoch+1}.png')
+
+        for ind, (synthetic_image, masks, embedding) in enumerate(zip(syn_imgs, maskss, embeddings)):
+            print(f'batch =', ind)
+            optimizer.zero_grad()
+            # Assuming synthetic_image and masks are already defined
+            decoded = decoder(embedding)
+            
+            # Compute loss
+            loss = custom_loss(decoded, masks)
+
+            # Backpropagation
+            loss.backward()
+            # for name, param in decoder.named_parameters():
+            #     if param.requires_grad:
+            #         print(f"Gradient of {name}: {param.grad.sum()}")
+            optimizer.step()
+
