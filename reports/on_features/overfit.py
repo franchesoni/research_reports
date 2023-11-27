@@ -1,4 +1,5 @@
 import json
+import tqdm
 import shutil
 import tqdm
 from pathlib import Path
@@ -205,25 +206,46 @@ class PLModule(pl.LightningModule):
 
 
 if __name__ == '__main__':
-    dirpath = Path('/home/franchesoni/adisk/samdata_512')
-    batch_size = 8
-    train_ds = SAM512Dataset(dirpath, split='train')
-    val_ds = SAM512Dataset(dirpath, split='val')
-    train_dl = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8, pin_memory=True)
-    val_dl = torch.utils.data.DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
-    model = MySAFeats()
-    plmodel = PLModule(model)
-    trainer = pl.Trainer(gpus=1, max_epochs=1000000,)# fast_dev_run=True, overfit_batches=4, log_every_n_steps=1)
-    trainer.fit(plmodel, train_dataloaders=train_dl, val_dataloaders=val_dl)
+    mode = ('train', 'inference')[1]
+    if mode == 'train':
+        # train
+        model = MySAFeats()
+        dirpath = Path('/home/franchesoni/adisk/samdata_512')
+        batch_size = 8
+        train_ds = SAM512Dataset(dirpath, split='train')
+        val_ds = SAM512Dataset(dirpath, split='val')
+        train_dl = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8, pin_memory=True)
+        val_dl = torch.utils.data.DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
+        plmodel = PLModule(model)
+        trainer = pl.Trainer(gpus=1, max_epochs=1000000,)# fast_dev_run=True, overfit_batches=4, log_every_n_steps=1)
+        trainer.fit(plmodel, train_dataloaders=train_dl, val_dataloaders=val_dl)
+
+    elif mode == 'inference':
+        # inference
+        ckpt_path = Path('/home/franchesoni/Downloads/lightning_logs/lightning_logs/version_8/checkpoints/epoch=217-step=273808.ckpt')
+
+        model = PLModule(MySAFeats())
+        model.load_state_dict(torch.load(ckpt_path, map_location='cpu')['state_dict'])
+        model.eval()
+        test_img_paths = [f'img{i}.png' for i in range(9)]
+        for ind, test_img_path in tqdm.tqdm(enumerate(test_img_paths)):
+            if not Path(test_img_path).exists():
+                test_img_path = test_img_path.split('.')[0] + '.jpeg'
+            test_img = Image.open(test_img_path).convert('RGB')
+            test_img = pad_resized_img(test_img)
+            test_img = transforms.ToTensor()(test_img)
+            test_img = test_img / test_img.max()
+            with torch.no_grad():
+                output = model(test_img[None])[0]
+                output = (output.permute(1,2,0).numpy() * 255).astype(np.uint8)
+                sqimgs = []
+                for i in range(4):
+                    sqimgs.append(np.concatenate((output[..., :i], output[..., i+1:]), axis=2))
+                big_image = np.vstack((np.hstack((sqimgs[0], sqimgs[1])), np.hstack((sqimgs[2], sqimgs[3]))))
+                big_image_gray = np.vstack((np.hstack((output[..., 0], output[..., 1])), np.hstack((output[..., 2], output[..., 3]))))
+                Image.fromarray(big_image).save(f"img_{ind}_out.png")
+                Image.fromarray(big_image_gray).save(f"img_{ind}_out_gray.png")
 
 
-# i've got half an hour
-# create the dataset
-    # resize longest to 512
-    # pad to 512x512
-    # do the same with the masks
-    # keep only 10 biggest masks
-# optimize the loss
-# create the model (efficientvit + pixelshuffle)
-# create the dataloader
-# use pl for training
+
+
