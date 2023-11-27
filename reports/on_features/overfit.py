@@ -128,6 +128,8 @@ def custom_loss(features, masks, ball_radius=0.02):
     return loss
 
 
+# now we need to enhance the loss. To allow for inclusion of different masks we need to consider, as a radius, something that depends on the mask size. The square root of the mask size makes sense to be a nice scale for the radius. In particular, if the mask size is 512 (max) then the radius should be 0.5 / 2 (everything should be inside). Then the radius of the ball should scale as the radius of the mask.
+# Now the push and pull. We wnt that, if A contains B, then B should be in A but points of A that aren't in B should respect that too. The hierarchy of masks should be respected in the feature space. The pull of A is correct, the push of A is correct, and the pull of B is correct, and the push of B is correct (kinda), but the push between the centers is not correct. The push between centers should be
 
 
 
@@ -222,12 +224,12 @@ if __name__ == '__main__':
 
     elif mode == 'inference':
         # inference
-        ckpt_path = Path('/home/franchesoni/Downloads/lightning_logs/lightning_logs/version_8/checkpoints/epoch=347-step=437088.ckpt')
+        ckpt_path = Path('/home/franchesoni/Downloads/lightning_logs/lightning_logs/version_8/checkpoints/epoch=410-step=516216.ckpt')
 
         model = PLModule(MySAFeats())
         model.load_state_dict(torch.load(ckpt_path, map_location='cpu')['state_dict'])
         model.eval()
-        test_img_paths = [f'img{i}.png' for i in range(10)]
+        test_img_paths = [f'img{i}.png' for i in range(12)]
         for ind, test_img_path in tqdm.tqdm(enumerate(test_img_paths)):
             if not Path(test_img_path).exists():
                 test_img_path = test_img_path.split('.')[0] + '.jpeg'
@@ -247,6 +249,8 @@ if __name__ == '__main__':
                 Image.fromarray(big_image).save(f"bigout{ind}.png")
                 Image.fromarray(output[..., :3]).save(f"out{ind}.png")
                 Image.fromarray(big_image_gray).save(f"grayout{ind}.png")
+                for c in range(4):
+                    Image.fromarray(output[..., c]).save(f"colorout{ind}_c{c}.png")
 
 
 
