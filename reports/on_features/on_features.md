@@ -69,4 +69,16 @@ Here's the plan:
 
 Say we have a network, starting or not from sam and trained on rectangles of different sizes and colors. What we would like to do is to create a grayscale image where the rectangles have different gray levels. The solution should be a simple operation mapping colors to grayscale. The main thing is that we don't really care how close the rectangles are in color space, but we always map them to be separate in luminance space. If we e consider 10 gray
 
+## Experimental results and reflections
+
+1. We tried training a network on a piece of SA-1B dataset, generating samples comprising images and the 10 biggest masks for that image. The network is an efficientvit with a decoder head that are some simple blocks and pixel shuffling. The loss has a pull-if-far component between features of the same masks, push-if-close component between features of different masks, and push-if-close component between averages of features over masks. This was trained on weird over one gpu with 12GB of memory and full utilization. Loss was vectorized. Batch size is 8. Output dimension is 4 (more than enough). 
+2. The results showed some segmentation was being done. My worry about the ordering of the coloring doesn't really seem important. Two of the four channels are useless. Proposed segments are relatively big. There is some evidence that the network could handle ambiguity correctly. However, the objectness doesn't seem to extend beyond SAM. It doesn't really work on satellite images and it proposed relatively big masks. Of course, training on more diverse datasets and with multiple object sizes makes sense. The main issue now is that the network is not really building a hierarchy of objects, which could be desirable. Should we do it synthetically?
+
+I'm proposing a mask proposal generator. For that I need ground truth masks. It's hard to imagine the proposal generator generalizing to masks different than those seen as ground truth. It seems unavoidable to do some sort of self-supervision, in this case generating some target masks automatically. What was the hope? That because the target masks were unknown the method would account for similarity of masks that overlap automatically. This seems to happen, but the method doesn't really capture a hierarchy of masks like a fractal as I would have liked. 
+
+There are two potential ways that come to mind to do this. The first one is to create different radius for balls, so that we know more or less that shared surfaces between masks should be at some specific distance. The second one is to look at different dimensions and ask, for instance, for pixels of two masks to be similar on one dimension while far away in another. None of these is satisfactory at first sight. How do I enforce a fractal structure in the loss? Maybe using different radius for different dimensions. The larger the radius the coarser the segmentation? Probably a loss like SAM's, which only takes the loss on the minimum per prediction (in this case per channel), would be best. The question here is how do we handle different resolutions and so on. Maybe training on a large scale dataset would be enough.
+
+
+
+
 
