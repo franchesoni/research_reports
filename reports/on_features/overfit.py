@@ -222,17 +222,18 @@ if __name__ == '__main__':
 
     elif mode == 'inference':
         # inference
-        ckpt_path = Path('/home/franchesoni/Downloads/lightning_logs/lightning_logs/version_8/checkpoints/epoch=217-step=273808.ckpt')
+        ckpt_path = Path('/home/franchesoni/Downloads/lightning_logs/lightning_logs/version_8/checkpoints/epoch=347-step=437088.ckpt')
 
         model = PLModule(MySAFeats())
         model.load_state_dict(torch.load(ckpt_path, map_location='cpu')['state_dict'])
         model.eval()
-        test_img_paths = [f'img{i}.png' for i in range(9)]
+        test_img_paths = [f'img{i}.png' for i in range(10)]
         for ind, test_img_path in tqdm.tqdm(enumerate(test_img_paths)):
             if not Path(test_img_path).exists():
                 test_img_path = test_img_path.split('.')[0] + '.jpeg'
             test_img = Image.open(test_img_path).convert('RGB')
             test_img = pad_resized_img(test_img)
+            test_img.save(f"input{ind}.png")
             test_img = transforms.ToTensor()(test_img)
             test_img = test_img / test_img.max()
             with torch.no_grad():
@@ -243,8 +244,9 @@ if __name__ == '__main__':
                     sqimgs.append(np.concatenate((output[..., :i], output[..., i+1:]), axis=2))
                 big_image = np.vstack((np.hstack((sqimgs[0], sqimgs[1])), np.hstack((sqimgs[2], sqimgs[3]))))
                 big_image_gray = np.vstack((np.hstack((output[..., 0], output[..., 1])), np.hstack((output[..., 2], output[..., 3]))))
-                Image.fromarray(big_image).save(f"img_{ind}_out.png")
-                Image.fromarray(big_image_gray).save(f"img_{ind}_out_gray.png")
+                Image.fromarray(big_image).save(f"bigout{ind}.png")
+                Image.fromarray(output[..., :3]).save(f"out{ind}.png")
+                Image.fromarray(big_image_gray).save(f"grayout{ind}.png")
 
 
 
