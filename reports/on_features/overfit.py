@@ -95,41 +95,46 @@ class SAM512Dataset(torch.utils.data.Dataset):
         return img, masks
 
 
-def custom_loss(features, masks, ball_radius=0.02):
+def custom_loss(features, masks):
     """Pull features of one mask to its center if they're outside pull ball. Push features external to the mask away from the center if they're inside push ball. Push centers apart if they're contained in the same push centers ball."""
-    # define ball radii
-    pull_ball_radius = ball_radius
-    push_ball_radius = 2 * ball_radius
-    push_centers_ball_radius = 4 * ball_radius
     # get shapes right
     B, M, H, W = masks.shape
     Bf, F, Hf, Wf = features.shape
     assert H == Hf and W == Wf and B == Bf
     masks = masks.view(B, M, 1, H*W)
     features = features.view(B, 1, F, H*W)
+    # define ball radii
+    assert masks.dtype == torch.bool
+    ball_radius = 0.25  # this is the internal radius when the size is max, i.e. 512
+    pull_ball_radius = ball_radius * ((masks.sum(dim=(2,3)) / (384**2)) ** 2)  # B, M
+    push_ball_radius = 2 * ball_radius * ((masks.sum(dim=(2,3)) / (384**2)) ** 2)  # B, M
+    push_centers_ball_radius = 4 * ball_radius * ((masks.sum(dim=(2,3)) / (384**2)) ** 2)  # B, M
 
     mask_features = features * masks  # B, M, F, H*W
     # now we have to sum and divide to get the mean correctly
     mean_features = mask_features.sum(dim=3, keepdim=True) / masks.sum(dim=3, keepdim=True)  # B, M, F, 1
+    reg_loss = torch.norm(mean_features, dim=2, p=1).sum(dim=1) / M  # mean over masks
 
     # now we can mask and compute
     distances = torch.norm(features - mean_features, dim=2, p=1)  # B, M, H*W
     # pull loss: pull features to the center if they're outside the pull ball
-    pull_loss = torch.clamp(distances * masks.view(B, M, H*W) - pull_ball_radius, min=0).sum(dim=2) / masks.view(B, M, H*W).sum(dim=2)
+    pull_loss = torch.clamp(distances * masks.view(B, M, H*W) - pull_ball_radius.reshape(B, M, 1), min=0).sum(dim=2) / masks.view(B, M, H*W).sum(dim=2)
     pull_loss = pull_loss.sum(dim=1) / M  # mean over masks
     # push loss: push features away from the center if they're inside the push ball
-    push_loss = (torch.clamp(push_ball_radius - distances, min=0) * (~masks.view(B, M, H*W))).sum(dim=2) / (~masks.view(B, M, H*W)).sum(dim=2)
+    push_loss = (torch.clamp(push_ball_radius.reshape(B, M, 1) - distances, min=0) * (~masks.view(B, M, H*W))).sum(dim=2) / (~masks.view(B, M, H*W)).sum(dim=2)
     push_loss = push_loss.sum(dim=1) / M  # mean over masks
-    # push centers loss: push centers away from each other if they're inside the push centers ball
-    push_centers_loss = (torch.clamp(push_centers_ball_radius - torch.cdist(mean_features.view(B, M, F), mean_features.view(B, M, F)), min=0) * (torch.eye(M, device=masks.device)[None] == 0)).sum(dim=(1,2)) / (M*(M-1))
+    # push centers loss: push centers away from each other if they're inside the push centers ball and the masks don't overlap
+    distinct_masks = ((masks.reshape(B, M, 1, H*W) * masks.reshape(B, 1, M, H*W)) != 0).any(dim=3)  # B, M, M
+    center_distances = (torch.clamp(push_centers_ball_radius.reshape(B, M, 1) - torch.cdist(mean_features.view(B, M, F), mean_features.view(B, M, F)), min=0))  # B, M, M, hinged
+    push_centers_loss = (center_distances * distinct_masks * (torch.eye(M, device=masks.device)[None] == 0)).sum(dim=(1,2)) / (M*(M-1))
 
-    loss = pull_loss + push_loss + push_centers_loss
+    loss = pull_loss + push_loss + push_centers_loss + 0.001 * reg_loss
     loss = loss.mean()  # mean over batch
     return loss
 
 
 # now we need to enhance the loss. To allow for inclusion of different masks we need to consider, as a radius, something that depends on the mask size. The square root of the mask size makes sense to be a nice scale for the radius. In particular, if the mask size is 512 (max) then the radius should be 0.5 / 2 (everything should be inside). Then the radius of the ball should scale as the radius of the mask.
-# Now the push and pull. We wnt that, if A contains B, then B should be in A but points of A that aren't in B should respect that too. The hierarchy of masks should be respected in the feature space. The pull of A is correct, the push of A is correct, and the pull of B is correct, and the push of B is correct (kinda), but the push between the centers is not correct. The push between centers should be
+# Now the push and pull. We wnt that, if A contains B, then B should be in A but points of A that aren't in B should respect that too. The hierarchy of masks should be respected in the feature space. The pull of A is correct, the push of A is correct, and the pull of B is correct, and the push of B is correct (kinda), but the push between the centers is not correct. The push between centers should be 0 if the masks overlap. 
 
 
 
@@ -163,7 +168,8 @@ class MaskFeatureDecoder(torch.nn.Module):
         x = self.input_conv(x)
         for ind, block in enumerate(self.middle):
             x = block(x)
-        x = torch.sigmoid(self.pixelshuffle(x))
+        x = self.pixelshuffle(x)
+        # x = torch.sigmoid(self.pixelshuffle(x))  # when reg loss is not enabled
         return x
 
 class MySAFeats(torch.nn.Module):
@@ -199,8 +205,9 @@ class PLModule(pl.LightningModule):
         self.log('val_loss', loss)
         # save image
         if batch_idx == 0:
-            self.logger.experiment.add_image('val_img', x[0], self.current_epoch)
-            self.logger.experiment.add_image('val_pred', y_hat[0, :3], self.current_epoch)
+            for i in range(len(x)):
+                self.logger.experiment.add_image(f'val_img_{str(i).zfill(2)}', x[i], self.current_epoch)
+                self.logger.experiment.add_image(f'val_pred_{str(i).zfill(2)}', y_hat[i, :3], self.current_epoch)
         return loss
     
     def configure_optimizers(self):
@@ -208,23 +215,27 @@ class PLModule(pl.LightningModule):
 
 
 if __name__ == '__main__':
-    mode = ('train', 'inference')[1]
+    mode = ('train', 'inference')[0]
     if mode == 'train':
         # train
-        model = MySAFeats()
         dirpath = Path('/home/franchesoni/adisk/samdata_512')
         batch_size = 8
         train_ds = SAM512Dataset(dirpath, split='train')
         val_ds = SAM512Dataset(dirpath, split='val')
         train_dl = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8, pin_memory=True)
         val_dl = torch.utils.data.DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
-        plmodel = PLModule(model)
-        trainer = pl.Trainer(gpus=1, max_epochs=1000000,)# fast_dev_run=True, overfit_batches=4, log_every_n_steps=1)
+
+        plmodel = PLModule(MySAFeats())
+        ckpt_path = Path('lightning_logs/version_8/checkpoints/epoch=410-step=516216.ckpt')
+        if Path(ckpt_path).exists():
+            plmodel.load_state_dict(torch.load(ckpt_path, map_location='cpu')['state_dict'])
+
+        trainer = pl.Trainer(gpus=1, max_epochs=1000000)#, fast_dev_run=True, overfit_batches=4, log_every_n_steps=1)
         trainer.fit(plmodel, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
     elif mode == 'inference':
         # inference
-        ckpt_path = Path('/home/franchesoni/Downloads/lightning_logs/lightning_logs/version_8/checkpoints/epoch=410-step=516216.ckpt')
+        ckpt_path = Path('lightning_logs/version_8/checkpoints/epoch=410-step=516216.ckpt')
 
         model = PLModule(MySAFeats())
         model.load_state_dict(torch.load(ckpt_path, map_location='cpu')['state_dict'])
@@ -255,3 +266,9 @@ if __name__ == '__main__':
 
 
 
+# the easiest you can do
+# do not expand the dataset
+# do not take different sizes or more masks
+# do not put in jz
+# resume training with new loss
+# 
