@@ -3,6 +3,7 @@ import os
 import torch
 import json
 from torch.utils.tensorboard import SummaryWriter
+from losses import losses_dict
 
 
 def check_for_nan(loss, model, batch):
@@ -55,7 +56,15 @@ class TrainableModule(torch.nn.Module):
         x, y = batch
         y_hat = self.model(x)
         loss = self.loss_fn(y_hat, y)
-        self.log("val_loss", loss, global_step)
+        self.log("val/main_loss", loss, global_step)
+
+        for loss_name, loss_fn in losses_dict.items():
+            self.log(
+                f"val/{loss_name}",
+                loss_fn(y_hat, y),
+                global_step,
+            )
+
         # save image
         if batch_idx == 0:
             for i in range(len(x)):
@@ -68,6 +77,12 @@ class TrainableModule(torch.nn.Module):
                         y_hat[i, c : c + 1],
                         global_step=global_step,
                     )
+                # log color image
+                self.logger.add_image(
+                    f"val_img_{str(i).zfill(2)}_color",
+                    y_hat[i][:3],
+                    global_step=global_step,
+                )
         return loss
 
     def configure_optimizers(self):
