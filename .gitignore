@@ -166,3 +166,5 @@ gitignored/
 *.html
 *.png
 *.jpeg
+*.pt
+runs/
