@@ -56,12 +56,16 @@ logs:
 - The simplest hinge started to give something. Although with 90 training samples it's still not overfitting... I wonder if the capacity of the network is bad. I whould monitor all losses and the variance of the output at the same time. 
 - In fact 90 training examples are less than that because I drop the last batch.
 
+- Bunch of enhancements: Regenerated 99999 datapoints with size 518x518, changed the network to vit small reg dinov2 pretrained, included loss monitoring and color image logging.
+- Rerun with 1000 / 10 data and the offset loss.
+    `python engine.py train datadir offset offset1k --batch_size=16 --train_size=1000 --val_size=10`
+
 
 to-do:
 [x] increase network capacity <- now using a small vitreg 
-- monitor all losses and the variance of the output at the same time (in validation)
-- log the images in color too
-- code the other losses:
+[x] monitor all losses and the variance of the output at the same time (in validation)
+[x] log the images in color too
+[...] code the other losses:
     - offset to learnable center
     - last paper of van gool (variable ball)
     - similarity-based classification
