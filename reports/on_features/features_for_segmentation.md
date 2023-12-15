@@ -43,6 +43,30 @@ But there are other papers:
 
 
 
+# Experiments
+
+Created simulated data containing random rectangles that many times overlap and that sometimes have the same color. The background is balck and all colors have the same mean. If rectangles touch then they don't have the same color. 
+The network is a very small one with efficient vit blocks and pixelshuffle as decoder. 
+
+
+logs:
+- I trained a network with a basic loss, unbalanced, on 90 train features and 10 val features. The loss converged beautifully for both sets to a constant output. We see that the cosine annealing sometimes hurt, but not much.
+    - training the same on more data shouldn't make much sense
+- To avoid convergence to a constant I increased x100 the weight of the push loss. It also converged to the mean.
+- The simplest hinge started to give something. Although with 90 training samples it's still not overfitting... I wonder if the capacity of the network is bad. I whould monitor all losses and the variance of the output at the same time. 
+- In fact 90 training examples are less than that because I drop the last batch.
+
+
+to-do:
+[x] increase network capacity <- now using a small vitreg 
+- monitor all losses and the variance of the output at the same time (in validation)
+- log the images in color too
+- code the other losses:
+    - offset to learnable center
+    - last paper of van gool (variable ball)
+    - similarity-based classification
+    - frequency centers
+- test that all work ok and then launch one training per loss
 
 
 
