@@ -150,7 +150,7 @@ def offset_to_center(features, masks):
 
 def global_variance(features, masks):
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
-    loss = - torch.var(features, dim=(3,4)).mean()  # negative variance as loss increases variance hence diversity
+    loss = - torch.var(features, dim=(3)).mean()  # negative variance as loss increases variance hence diversity
     return loss
 
 
