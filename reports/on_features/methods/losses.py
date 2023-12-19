@@ -32,7 +32,7 @@ def get_row_col(H, W, device):
     
 
 
-def simplest_loss(features, masks):
+def simplest_loss(features, masks, alpha=1e-3):
     """Pull features of one mask to its center. Push features external to the mask away from the center."""
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
 
@@ -55,7 +55,7 @@ def simplest_loss(features, masks):
     ).sum(dim=2)
     push_loss = push_loss.sum(dim=1) / M  # mean over masks
 
-    loss = pull_loss + 100 * push_loss
+    loss = alpha * pull_loss + push_loss
     loss = loss.mean()  # mean over batch
     return loss
 
