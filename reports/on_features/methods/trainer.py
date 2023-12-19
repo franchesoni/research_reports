@@ -3,6 +3,9 @@ import os
 import torch
 import json
 from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+from PIL import Image
+
 from losses import losses_dict
 
 
@@ -24,12 +27,25 @@ def check_for_nan(loss, model, batch):
         raise e
 
 
+def save_tensor_as_image(tensor, dstfile, global_step):
+    tensor = tensor.detach().cpu().numpy()  # torch -> numpy
+    tensor = tensor.permute(1, 2, 0)  # CHW -> HWC
+    if tensor.max() <= 1:
+        tensor = tensor * 255.
+    tensor = tensor.clip(0, 255).astype(np.uint8)
+    image = Image.fromarray(tensor)
+    dstfile = (dstfile.parent / (dstfile.stem + '_' + global_step)).with_suffix('png')
+    image.save(dstfile)
+
+
 class TrainableModule(torch.nn.Module):
     def __init__(self, model, loss_fn, comment=''):
         super().__init__()
         self.model = model
         self.loss_fn = loss_fn
         self.logger = SummaryWriter(comment=comment)
+        self.img_dstdir = Path(self.logger.get_logdir()) / 'images'
+        self.img_dstdir.mkdir(parents=True, exist_ok=True)
 
     def forward(self, x):
         return self.model(x)
@@ -41,11 +57,9 @@ class TrainableModule(torch.nn.Module):
         self.log("train_loss", loss, global_step)
         if batch_idx == 0:
             for i in range(len(x)):
-                self.logger.add_image(
-                    f"train_img_{str(i).zfill(2)}", x[i], global_step=global_step
-                )
+                save_tensor_as_image(f"train_img_{str(i).zfill(2)}", x[i], global_step=global_step)
                 for c in range(y_hat.shape[1]):
-                    self.logger.add_image(
+                    save_tensor_as_image(
                         f"train_pred_{str(i).zfill(2)}_{c}",
                         y_hat[i, c : c + 1],
                         global_step=global_step,
@@ -68,17 +82,17 @@ class TrainableModule(torch.nn.Module):
         # save image
         if batch_idx == 0:
             for i in range(len(x)):
-                self.logger.add_image(
+                save_tensor_as_image(
                     f"val_img_{str(i).zfill(2)}", x[i], global_step=global_step
                 )
                 for c in range(y_hat.shape[1]):
-                    self.logger.add_image(
+                    save_tensor_as_image(
                         f"val_pred_{str(i).zfill(2)}_{c}",
                         y_hat[i, c : c + 1],
                         global_step=global_step,
                     )
                 # log color image
-                self.logger.add_image(
+                save_tensor_as_image(
                     f"val_img_{str(i).zfill(2)}_color",
                     y_hat[i][:3],
                     global_step=global_step,
