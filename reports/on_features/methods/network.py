@@ -3,12 +3,27 @@ from PIL import Image
 import timm
 
 from timm.models.efficientvit_mit import (
-    # EfficientVit,
     MBConv,
     ResidualBlock,
     ConvNormAct,
 )
 import torch
+
+class DummyUpsampling(torch.nn.Module):
+    def __init__(self, in_channel, pixelshuffle_scale, output_channels):
+        super().__init__()
+        self.pixelshuffle_scale = pixelshuffle_scale
+        self.in_channel = in_channel
+        self.input_conv = torch.nn.Conv2d(in_channels=in_channel, out_channels=pixelshuffle_scale**2 * output_channels, kernel_size=1)
+        self.pixelshuffle = torch.nn.PixelShuffle(pixelshuffle_scale)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.input_conv(x)
+        x = torch.sigmoid(self.pixelshuffle(x))  # when reg loss is not enabled
+        return x
+
+
+        
 
 
 class MaskFeatureDecoder(torch.nn.Module):
@@ -44,7 +59,6 @@ class MaskFeatureDecoder(torch.nn.Module):
         x = self.input_conv(x)
         for ind, block in enumerate(self.middle):
             x = block(x)
-        # x = self.pixelshuffle(x)
         x = torch.sigmoid(self.pixelshuffle(x))  # when reg loss is not enabled
         return x
 
@@ -64,17 +78,20 @@ class SegFeatures(torch.nn.Module):
         return x
 
 
-def get_network(output_channels=3):
+def get_network(output_channels=3, dummy=False):
     # model = EfficientVit(
     #     widths=(initial_dim, initial_dim*2), depths=(1, 8), head_dim=16, num_classes=0, global_pool=None
     # )
     encoder = timm.create_model('vit_small_patch14_reg4_dinov2.lvd142m', pretrained=True, num_classes=0)
     pixelshuffle_scale = 14
-    decoder = MaskFeatureDecoder(
-        in_channel=384, 
-        head_width=pixelshuffle_scale**2 * output_channels,
-        pixelshuffle_scale=pixelshuffle_scale,
-    )
+    if dummy:
+        decoder = DummyUpsampling(in_channel=348, pixelshuffle_scale=pixelshuffle_scale, output_channels=output_channels)
+    else:
+        decoder = MaskFeatureDecoder(
+            in_channel=384, 
+            head_width=pixelshuffle_scale**2 * output_channels,
+            pixelshuffle_scale=pixelshuffle_scale,
+        )
     network = SegFeatures(encoder, decoder)
     return network
 

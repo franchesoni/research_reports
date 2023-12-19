@@ -44,11 +44,10 @@ def train(
     val_check_interval=None,
     train_size=10000,
     val_size=10,
-    initial_dim=8,
+    dummy_decoder=False
 ):
     print("getting model")
-    net = get_network(output_channels=output_channels, initial_dim=initial_dim)
-    breakpoint()
+    net = get_network(output_channels=output_channels, dummy=dummy_decoder)
 
     train_ds, val_ds = get_train_val_ds(datadir)
     train_ds.sample_paths = train_ds.sample_paths[:train_size]
