@@ -1,4 +1,5 @@
 # synthetic data
+import shutil
 import copy
 import pickle
 from pathlib import Path
@@ -10,6 +11,7 @@ import numpy as np
 import torch
 from PIL import ImageOps
 from skimage import measure
+from skimage.filters import gaussian
 
 
 def generate_rectangles(image_size, num_rectangles):
@@ -42,7 +44,7 @@ def generate_rectangles(image_size, num_rectangles):
 
 
 def generate_dataset_v2(
-    datadir, num_images, image_size=(518, 518), num_rectangles_choices=[6, 7, 8, 9]
+    datadir, num_images, image_size=(518, 518), num_rectangles_choices=[6, 7, 8, 9], reset=False
 ):
     """
     Generate a synthetic dataset of images with rectangles and their corresponding masks.
@@ -50,6 +52,8 @@ def generate_dataset_v2(
     Occasionally, rectangles will have the exact same color.
     """
     datadir = Path(datadir)
+    if reset and datadir.exists():
+        shutil.rmtree(datadir)
     if not os.path.exists(datadir):
         os.makedirs(datadir)
 
@@ -96,6 +100,7 @@ def generate_dataset_v2(
 
         # Remove mask regions for overlapped rectangles
         labels = measure.label(mask)
+        image = (gaussian(image, sigma=5) * 255).astype(np.uint8)
         # Save the image and mask
         cv2.imwrite(os.path.join(datadir, f"image_{str(i).zfill(strlen)}.png"), image)
         cv2.imwrite(os.path.join(datadir, f"mask_{str(i).zfill(strlen)}.png"), labels)
