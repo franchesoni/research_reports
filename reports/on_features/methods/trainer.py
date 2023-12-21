@@ -27,14 +27,16 @@ def check_for_nan(loss, model, batch):
         raise e
 
 
-def save_tensor_as_image(tensor, dstfile, global_step):
+def save_tensor_as_image(dstfile, tensor, global_step):
     tensor = tensor.detach().cpu().numpy()  # torch -> numpy
-    tensor = tensor.permute(1, 2, 0)  # CHW -> HWC
+    tensor = tensor.transpose(1, 2, 0)  # CHW -> HWC
     if tensor.max() <= 1:
         tensor = tensor * 255.
     tensor = tensor.clip(0, 255).astype(np.uint8)
+    tensor = tensor if tensor.shape[2] > 1 else tensor[..., 0]
     image = Image.fromarray(tensor)
-    dstfile = (dstfile.parent / (dstfile.stem + '_' + global_step)).with_suffix('png')
+    dstfile = Path(dstfile)
+    dstfile = (dstfile.parent / (dstfile.stem + '_' + str(global_step))).with_suffix('.png')
     image.save(dstfile)
 
 
