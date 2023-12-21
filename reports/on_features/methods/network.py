@@ -19,7 +19,7 @@ class DummyUpsampling(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.input_conv(x)
-        x = torch.sigmoid(self.pixelshuffle(x))  # when reg loss is not enabled
+        x = self.pixelshuffle(x)  # when reg loss is not enabled
         return x
 
 
@@ -59,7 +59,7 @@ class MaskFeatureDecoder(torch.nn.Module):
         x = self.input_conv(x)
         for ind, block in enumerate(self.middle):
             x = block(x)
-        x = torch.sigmoid(self.pixelshuffle(x))  # when reg loss is not enabled
+        x = self.pixelshuffle(x)  # when reg loss is not enabled
         return x
 
 
