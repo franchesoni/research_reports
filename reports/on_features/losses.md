@@ -66,7 +66,7 @@ $$L_A(\hat y, y_M) = \frac 1 M \sum_{m \in y_M} \left( \frac 1 {|m|} \sum_{z \in
 
 **Repulsion** is different as it is between masks' centroids:
 $$ L_R(\hat y, y_M) = \frac 1 {M(M-1)} \sum_{m_1, m_2 \in y_M; m_1\neq m_2} [2r_R-||\mu_{m_1}-\mu_{m_2}||]_+^2$$
-\alpha 
+
 **Regularization** pulls everything to $0$
 $$L_{reg}(\hat y, y_M)= \sum_m ||\mu_m||$$
 
@@ -179,5 +179,15 @@ More details can be found in the code https://github.com/davyneven/SpatialEmbedd
 **Segment Anything**: a promptable segmentation model. You put a positive click, you get three masks. If you put clicks everywhere and postprocess the masks you can get a segmentation of the image.
 
 
+## High level overview
 
+Of all the losses, the offset loss isn't appropriate because it's for segmentation with full supervision.
+
+All the rest could be formulated with only one mask per image. In fact we should check that we overfit and then start adding more data until the network is forced to generalize.
+
+Some of them require an activation function (e.g. sigmoid) to control the output while others don't. Because of this variation we'll put the activation function into the loss function. 
+
+Some of them involve some random sampling when others don't. A formulation I find general is to predict the residual for position and for color and maybe a couple of other vectors too.
+
+Therefore the losses involve images and masks and we should overfit one mask per image (or more) before increasing the number of examples. 
 
