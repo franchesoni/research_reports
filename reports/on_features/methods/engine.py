@@ -9,11 +9,12 @@ from torchvision.transforms.functional import to_tensor
 import torch
 
 print("loading custom...")
-from data import RectangleDataset, pad_resized_img, get_train_val_ds, custom_collate
+from data import pad_resized_img, get_train_val_ds, custom_collate
 from losses import losses_dict
 from trainer import Trainer, TrainableModule
 from network import get_network
-print('firing...')
+
+print("firing...")
 
 
 def seed_everything(seed=0):
@@ -34,7 +35,7 @@ def load_from_ckpt(trainable_module, ckpt_path):
 def train(
     datadir,
     loss_fn_name,
-    comment, 
+    comment,
     output_channels=3,
     ckpt_path=None,
     batch_size=8,
@@ -44,7 +45,7 @@ def train(
     val_check_interval=None,
     train_size=10000,
     val_size=10,
-    dummy_decoder=False
+    dummy_decoder=False,
 ):
     print("getting model")
     net = get_network(output_channels=output_channels, dummy=dummy_decoder)
