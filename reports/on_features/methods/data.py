@@ -201,4 +201,4 @@ if __name__ == "__main__":
     Fire(generate_dataset_v2)
 
 # Example usage
-# `python data.py datadir 10000``
+# `python data.py datadir 99999 --reset`
