@@ -101,12 +101,9 @@ class TrainableModule(torch.nn.Module):
                 )
         return loss
 
-    def configure_optimizers(self):
-        optim = torch.optim.AdamW(self.parameters(), lr=1e-3)
-        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, patience=1000, factor=0.5, verbose=True)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optim, T_0=10, T_mult=2, eta_min=1e-8, verbose=False
-        )
+    def configure_optimizers(self, max_lr=1e-2, total_steps=1000):
+        optim = torch.optim.AdamW(self.parameters(), lr=max_lr / 10)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optim, max_lr=max_lr, total_steps=1000, verbose=False)
         return optim, scheduler
 
     def log(self, name, value, step):
