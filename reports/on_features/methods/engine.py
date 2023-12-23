@@ -44,6 +44,7 @@ def train(
     val_size=10,
     dummy_decoder=False,
     max_lr=1e-2,
+    weight_decay=5e-5,
 ):
     print("getting model")
     net = get_network(output_channels=output_channels, dummy=dummy_decoder)
@@ -77,8 +78,13 @@ def train(
     total_steps = len(train_dl) * epochs
     loss_fn = losses_dict[loss_fn_name]
     trainable = TrainableModule(
-        net, loss_fn=loss_fn, comment=comment, max_lr=max_lr, total_steps=total_steps
-    )
+        net,
+        loss_fn=loss_fn,
+        comment=comment,
+        max_lr=max_lr,
+        weight_decay=weight_decay,
+        total_steps=total_steps
+        )
     trainable = load_from_ckpt(trainable, ckpt_path)
 
     trainer = Trainer(
@@ -86,6 +92,17 @@ def train(
         fast_dev_run=dev,
         val_check_interval=val_check_interval,
         device="cuda" if torch.cuda.is_available() else "cpu",
+        extra_hparams=dict(
+            train_size=train_size,
+            val_size=val_size,
+            dummy_decoder=dummy_decoder,
+            batch_size=batch_size,
+            output_channels=output_channels,
+            comment=comment,
+            max_lr=max_lr,
+            weight_decay=weight_decay,
+            total_steps=total_steps,
+    )
     )
     print("training")
     trainer.fit(trainable, train_dataloaders=train_dl, val_dataloaders=val_dl)
