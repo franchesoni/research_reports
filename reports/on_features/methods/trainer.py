@@ -32,24 +32,34 @@ def save_tensor_as_image(dstfile, tensor, global_step):
     tensor = tensor.detach().cpu().numpy()  # torch -> numpy
     tensor = tensor.transpose(1, 2, 0)  # CHW -> HWC
     if tensor.max() <= 1:
-        tensor = tensor * 255.
+        tensor = tensor * 255.0
     tensor = tensor.clip(0, 255).astype(np.uint8)
     tensor = tensor if tensor.shape[2] > 1 else tensor[..., 0]
     image = Image.fromarray(tensor)
     dstfile = Path(dstfile)
-    dstfile = (dstfile.parent / (dstfile.stem + '_' + str(global_step))).with_suffix('.png')
+    dstfile = (dstfile.parent / (dstfile.stem + "_" + str(global_step))).with_suffix(
+        ".png"
+    )
     image.save(dstfile)
 
 
 class TrainableModule(torch.nn.Module):
-    def __init__(self, model, loss_fn, comment='', max_lr=1e-2, weight_decay=5e-5, total_steps=1000):
+    def __init__(
+        self,
+        model,
+        loss_fn,
+        comment="",
+        max_lr=1e-2,
+        weight_decay=5e-5,
+        total_steps=1000,
+    ):
         super().__init__()
         self.model = model
         self.loss_fn = loss_fn
         self.logger = SummaryWriter(comment=comment)
-        self.img_dstdir = Path(self.logger.get_logdir()) / 'images'
+        self.img_dstdir = Path(self.logger.get_logdir()) / "images"
         self.img_dstdir.mkdir(parents=True, exist_ok=True)
-        self.out_dstdir = self.img_dstdir.parent / 'outputs'
+        self.out_dstdir = self.img_dstdir.parent / "outputs"
         self.out_dstdir.mkdir(parents=True, exist_ok=True)
         self.max_lr = max_lr
         self.total_steps = total_steps
@@ -64,13 +74,20 @@ class TrainableModule(torch.nn.Module):
         y_hat = self.model(x)
         loss = self.loss_fn(y_hat, y)
         self.log("train_loss", loss, global_step)
-        if batch_idx == 0 and global_step > self.last_global_step + self.total_steps // 10:
+        if (
+            batch_idx == 0
+            and global_step > self.last_global_step + self.total_steps // 10 - 1
+        ):
             self.last_global_step = global_step
             for i in range(len(x)):
-                save_tensor_as_image(self.img_dstdir / f"train_img_{str(i).zfill(2)}", x[i], global_step=global_step)
+                save_tensor_as_image(
+                    self.img_dstdir / f"train_img_{str(i).zfill(2)}",
+                    x[i],
+                    global_step=global_step,
+                )
                 for c in range(y_hat.shape[1]):
-                    save_tensor_as_image(self.out_dstdir /
-                        f"train_pred_{str(i).zfill(2)}_{c}",
+                    save_tensor_as_image(
+                        self.out_dstdir / f"train_pred_{str(i).zfill(2)}_{c}",
                         y_hat[i, c : c + 1],
                         global_step=global_step,
                     )
@@ -93,28 +110,35 @@ class TrainableModule(torch.nn.Module):
         if batch_idx == 0:
             for i in range(len(x)):
                 save_tensor_as_image(
-                    self.img_dstdir /
-                    f"val_img_{str(i).zfill(2)}", x[i], global_step=global_step
+                    self.img_dstdir / f"val_img_{str(i).zfill(2)}",
+                    x[i],
+                    global_step=global_step,
                 )
                 for c in range(y_hat.shape[1]):
                     save_tensor_as_image(
-                        self.out_dstdir / 
-                        f"val_pred_{str(i).zfill(2)}_{c}",
+                        self.out_dstdir / f"val_pred_{str(i).zfill(2)}_{c}",
                         y_hat[i, c : c + 1],
                         global_step=global_step,
                     )
                 # log color image
                 save_tensor_as_image(
-                    self.out_dstdir / 
-                    f"val_img_{str(i).zfill(2)}_color",
+                    self.out_dstdir / f"val_img_{str(i).zfill(2)}_color",
                     y_hat[i][:3],
                     global_step=global_step,
                 )
         return loss
 
     def configure_optimizers(self):
-        optim = SING(self.parameters(), lr=self.max_lr/10, weight_decay=self.weight_decay)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optim, max_lr=self.max_lr, total_steps=self.total_steps, verbose=False, pct_start=0.05)
+        optim = SING(
+            self.parameters(), lr=self.max_lr / 10, weight_decay=self.weight_decay
+        )
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optim,
+            max_lr=self.max_lr,
+            total_steps=self.total_steps,
+            verbose=False,
+            pct_start=0.05,
+        )
         return optim, scheduler
 
     def log(self, name, value, step):
@@ -197,13 +221,15 @@ class Trainer:
                     or self.global_step == 1
                 ):
                     self._validate(
-                        model, val_dataloaders, 
+                        model,
+                        val_dataloaders,
                     )
 
             # End of Epoch Validation Check if Interval Not Specified
             if self.val_check_interval is None:
                 self._validate(
-                    model, val_dataloaders, 
+                    model,
+                    val_dataloaders,
                 )
 
             if self.fast_dev_run:
