@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from losses import losses_dict
+from sing import SING
 
 
 def check_for_nan(loss, model, batch):
@@ -41,13 +42,19 @@ def save_tensor_as_image(dstfile, tensor, global_step):
 
 
 class TrainableModule(torch.nn.Module):
-    def __init__(self, model, loss_fn, comment=''):
+    def __init__(self, model, loss_fn, comment='', max_lr=1e-2, weight_decay=5e-5, total_steps=1000):
         super().__init__()
         self.model = model
         self.loss_fn = loss_fn
         self.logger = SummaryWriter(comment=comment)
         self.img_dstdir = Path(self.logger.get_logdir()) / 'images'
         self.img_dstdir.mkdir(parents=True, exist_ok=True)
+        self.out_dstdir = self.img_dstdir.parent / 'outputs'
+        self.out_dstdir.mkdir(parents=True, exist_ok=True)
+        self.max_lr = max_lr
+        self.total_steps = total_steps
+        self.last_global_step = 0
+        self.weight_decay = weight_decay
 
     def forward(self, x):
         return self.model(x)
@@ -57,11 +64,12 @@ class TrainableModule(torch.nn.Module):
         y_hat = self.model(x)
         loss = self.loss_fn(y_hat, y)
         self.log("train_loss", loss, global_step)
-        if batch_idx == 0:
+        if batch_idx == 0 and global_step > self.last_global_step + self.total_steps // 10:
+            self.last_global_step = global_step
             for i in range(len(x)):
-                save_tensor_as_image(f"train_img_{str(i).zfill(2)}", x[i], global_step=global_step)
+                save_tensor_as_image(self.img_dstdir / f"train_img_{str(i).zfill(2)}", x[i], global_step=global_step)
                 for c in range(y_hat.shape[1]):
-                    save_tensor_as_image(
+                    save_tensor_as_image(self.out_dstdir /
                         f"train_pred_{str(i).zfill(2)}_{c}",
                         y_hat[i, c : c + 1],
                         global_step=global_step,
@@ -85,25 +93,28 @@ class TrainableModule(torch.nn.Module):
         if batch_idx == 0:
             for i in range(len(x)):
                 save_tensor_as_image(
+                    self.img_dstdir /
                     f"val_img_{str(i).zfill(2)}", x[i], global_step=global_step
                 )
                 for c in range(y_hat.shape[1]):
                     save_tensor_as_image(
+                        self.out_dstdir / 
                         f"val_pred_{str(i).zfill(2)}_{c}",
                         y_hat[i, c : c + 1],
                         global_step=global_step,
                     )
                 # log color image
                 save_tensor_as_image(
+                    self.out_dstdir / 
                     f"val_img_{str(i).zfill(2)}_color",
                     y_hat[i][:3],
                     global_step=global_step,
                 )
         return loss
 
-    def configure_optimizers(self, max_lr=1e-2, total_steps=1000):
-        optim = torch.optim.AdamW(self.parameters(), lr=max_lr / 10)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optim, max_lr=max_lr, total_steps=1000, verbose=False)
+    def configure_optimizers(self):
+        optim = SING(self.parameters(), lr=self.max_lr/10, weight_decay=self.weight_decay)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optim, max_lr=self.max_lr, total_steps=self.total_steps, verbose=False, pct_start=0.05)
         return optim, scheduler
 
     def log(self, name, value, step):
@@ -115,13 +126,11 @@ class Trainer:
         self,
         max_epochs=24,
         fast_dev_run=False,
-        overfit_batches=0,
         val_check_interval=None,
         device=None,
     ):
         self.max_epochs = max_epochs
         self.fast_dev_run = fast_dev_run
-        self.overfit_batches = overfit_batches
         self.val_check_interval = val_check_interval
         self.device = device
         self.best_val_loss = float("inf")
@@ -138,7 +147,6 @@ class Trainer:
         hparams = {
             "max_epochs": self.max_epochs,
             "fast_dev_run": self.fast_dev_run,
-            "overfit_batches": self.overfit_batches,
             "val_check_interval": self.val_check_interval,
             "model": str(model.model.__class__.__name__),
             "loss_fn": str(model.loss_fn),
@@ -156,8 +164,6 @@ class Trainer:
             # Training Phase
             for batch_idx, batch in enumerate(train_dataloaders):
                 model.train()
-                if self.overfit_batches > 0 and batch_idx >= self.overfit_batches:
-                    break
 
                 batch = [item.to(self.device) for item in batch]
                 current_lr = optimizer.param_groups[0]["lr"]
@@ -191,20 +197,20 @@ class Trainer:
                     or self.global_step == 1
                 ):
                     self._validate(
-                        model, val_dataloaders, small_val=self.overfit_batches > 0
+                        model, val_dataloaders, 
                     )
 
             # End of Epoch Validation Check if Interval Not Specified
             if self.val_check_interval is None:
                 self._validate(
-                    model, val_dataloaders, small_val=self.overfit_batches > 0
+                    model, val_dataloaders, 
                 )
 
             if self.fast_dev_run:
                 print("fast_dev_run, one validation only")
                 break
 
-    def _validate(self, model, val_dataloader, small_val):
+    def _validate(self, model, val_dataloader):
         model.eval()
         val_loss = 0
         with torch.no_grad():
@@ -215,10 +221,8 @@ class Trainer:
                 )
                 check_for_nan(loss, model, batch)
                 val_loss += loss.item()
-                if small_val and batch_idx == 10:
-                    break
 
-        val_loss = val_loss / 10 if small_val else val_loss / len(val_dataloader)
+        val_loss = val_loss / len(val_dataloader)
         print(" " * 100, end="\r")
         print(f"Global Step: {self.global_step}, Validation Loss: {val_loss:.4f}")
 
