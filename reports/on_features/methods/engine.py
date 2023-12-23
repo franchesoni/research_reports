@@ -1,14 +1,12 @@
-print("importing basics...")
+print("importing external...")
 from pathlib import Path
 import tqdm
 from PIL import Image
 import numpy as np
-
-print("importing torch...")
 from torchvision.transforms.functional import to_tensor
 import torch
 
-print("loading custom...")
+print("importing internal...")
 from data import pad_resized_img, get_train_val_ds, custom_collate
 from losses import losses_dict
 from trainer import Trainer, TrainableModule
@@ -41,15 +39,16 @@ def train(
     batch_size=8,
     epochs=9999,
     dev=False,
-    overfit=0,
     val_check_interval=None,
-    train_size=10000,
+    train_size=int(1e9),
     val_size=10,
     dummy_decoder=False,
+    max_lr=1e-2,
 ):
     print("getting model")
     net = get_network(output_channels=output_channels, dummy=dummy_decoder)
 
+    print("getting dataloaders")
     train_ds, val_ds = get_train_val_ds(datadir)
     train_ds.sample_paths = train_ds.sample_paths[:train_size]
     val_ds.sample_paths = val_ds.sample_paths[:val_size]
@@ -57,7 +56,7 @@ def train(
     train_dl = torch.utils.data.DataLoader(
         train_ds,
         batch_size=batch_size,
-        shuffle=overfit == 0,
+        shuffle=True,
         drop_last=True,
         num_workers=8 if not dev else 0,
         pin_memory=True,
@@ -71,18 +70,21 @@ def train(
         num_workers=8 if not dev else 0,
         pin_memory=False,
         collate_fn=custom_collate,
+        drop_last=False,
     )
 
     print("initializing model and trainer")
+    total_steps = len(train_dl) * epochs
     loss_fn = losses_dict[loss_fn_name]
-    trainable = TrainableModule(net, loss_fn=loss_fn, comment=comment)
+    trainable = TrainableModule(
+        net, loss_fn=loss_fn, comment=comment, max_lr=max_lr, total_steps=total_steps
+    )
     trainable = load_from_ckpt(trainable, ckpt_path)
 
     trainer = Trainer(
         max_epochs=epochs,
         fast_dev_run=dev,
-        overfit_batches=overfit,
-        val_check_interval=None if overfit else val_check_interval,
+        val_check_interval=val_check_interval,
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
     print("training")
