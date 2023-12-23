@@ -24,6 +24,9 @@ def preprocess_masks_features(masks, features):
 
     return masks, features, M, B, H, W, F
 
+def symlog(x):
+    return torch.sign(x) * torch.log(torch.abs(x) + 1)
+
 def get_row_col(H, W, device):
     # get position of pixels in [0, 1]
     row = torch.linspace(0, 1, H, device=device)
@@ -34,6 +37,7 @@ def get_row_col(H, W, device):
 
 def simplest_loss(features, masks, alpha=1e-3):
     """Pull features of one mask to its center. Push features external to the mask away from the center."""
+    features = symlog(features)
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
 
     mask_features = features * masks  # B, M, F, H*W
@@ -55,13 +59,15 @@ def simplest_loss(features, masks, alpha=1e-3):
     ).sum(dim=2)
     push_loss = push_loss.sum(dim=1) / M  # mean over masks
 
-    loss = alpha * pull_loss + push_loss
+    reg_loss = torch.norm(mean_features, dim=2, p=1).sum(dim=1) / M  # mean over masks
+    loss = alpha * pull_loss + push_loss + 0.001 * reg_loss
     loss = loss.mean()  # mean over batch
     return loss
 
 
 def simplest_hinge(features, masks, ball_radius=0.05):
     """Pull features of one mask to its center if they're outside pull ball. Push features external to the mask away from the center if they're inside push ball. Push centers apart if they're contained in the same push centers ball."""
+    features = symlog(features)
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
     # assuming the number of dimensions is N=4, then the number of balls that can fit in the big ball of radius 0.5 is 0.5**N / r**N, where r is the small radius. To get a number of balls of around 10^4 we can use r = 0.05.
     assert ball_radius == 0.05
@@ -111,13 +117,14 @@ def simplest_hinge(features, masks, ball_radius=0.05):
     )
 
     ## comment out regularization loss
-    # reg_loss = torch.norm(mean_features, dim=2, p=1).sum(dim=1) / M  # mean over masks
-    loss = pull_loss + push_loss + push_centers_loss  # + 0.001 * reg_loss
+    reg_loss = torch.norm(mean_features, dim=2, p=1).sum(dim=1) / M  # mean over masks
+    loss = pull_loss + push_loss + push_centers_loss + 0.001 * reg_loss
     loss = loss.mean()  # mean over batch
     return loss
 
 def offset_to_center(features, masks):
     """Try to predict as feature the center of the mask"""
+    features = symlog(features)
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
 
     # features: B, 1, F, H*W
@@ -149,6 +156,7 @@ def offset_to_center(features, masks):
     return loss
 
 def global_variance(features, masks):
+    features = symlog(features)
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
     loss = - torch.var(features, dim=(3)).mean()  # negative variance as loss increases variance hence diversity
     return loss
