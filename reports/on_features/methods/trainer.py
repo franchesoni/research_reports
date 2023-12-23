@@ -27,12 +27,19 @@ def check_for_nan(loss, model, batch):
         # now raise the error
         raise e
 
+def minmax(tensor):
+    '''min max norm of tensor, return 0.5 if constant'''
+    if tensor.max() == tensor.min():
+        return tensor.new_tensor(0.5)
+    else:
+        return (tensor - tensor.min()) / (tensor.max() - tensor.min())
+
 
 def save_tensor_as_image(dstfile, tensor, global_step):
     tensor = tensor.detach().cpu().numpy()  # torch -> numpy
     tensor = tensor.transpose(1, 2, 0)  # CHW -> HWC
-    if tensor.max() <= 1:
-        tensor = tensor * 255.0
+    tensor = minmax(tensor)
+    tensor = tensor * 255.0
     tensor = tensor.clip(0, 255).astype(np.uint8)
     tensor = tensor if tensor.shape[2] > 1 else tensor[..., 0]
     image = Image.fromarray(tensor)
@@ -152,6 +159,7 @@ class Trainer:
         fast_dev_run=False,
         val_check_interval=None,
         device=None,
+        extra_hparams={},
     ):
         self.max_epochs = max_epochs
         self.fast_dev_run = fast_dev_run
@@ -159,6 +167,8 @@ class Trainer:
         self.device = device
         self.best_val_loss = float("inf")
         self.global_step = 0
+        self.hparams = extra_hparams
+
 
     def fit(self, model, train_dataloaders, val_dataloaders, compile=False):
         model.to(self.device)
@@ -169,12 +179,12 @@ class Trainer:
         optimizer, scheduler = model.configure_optimizers()
         # save hparams
         hparams = {
+            "model": str(model.model.__class__.__name__),
+            "loss_fn": str(model.loss_fn),
             "max_epochs": self.max_epochs,
             "fast_dev_run": self.fast_dev_run,
             "val_check_interval": self.val_check_interval,
-            "model": str(model.model.__class__.__name__),
-            "loss_fn": str(model.loss_fn),
-        }
+        } | self.hparams
         print("hparams:", hparams)
         model.logger.add_hparams(hparams, {})
         with open(os.path.join(model.logger.log_dir, "hparams.txt"), "w") as f:
