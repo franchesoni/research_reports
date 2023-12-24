@@ -188,7 +188,6 @@ def pad_resized_img(pil_img, size=224):
 
 def custom_collate(batch):
     images, masks = zip(*batch)
-    assert len(images) > 1
     n_masks = min([mask.shape[0] for mask in masks])
     masks = [mask[:n_masks] for mask in masks]
     images = torch.stack(images)
