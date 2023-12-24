@@ -82,7 +82,7 @@ class SegFeatures(torch.nn.Module):
 
 def get_network(output_channels=3, dummy=False):
     encoder = timm.create_model(
-        "vit_small_patch14_reg4_dinov2.lvd142m", pretrained=True, num_classes=0
+        "vit_small_patch14_reg4_dinov2.lvd142m", pretrained=False, num_classes=0
     )
     pixelshuffle_scale = 14
     if dummy:
