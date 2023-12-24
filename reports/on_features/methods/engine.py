@@ -59,7 +59,6 @@ def overfit(
     trainable = TrainableModule(
         net,
         loss_fn=loss_fn,
-        comment=comment,
         max_lr=max_lr,
         weight_decay=weight_decay,
         total_steps=total_steps
@@ -70,6 +69,7 @@ def overfit(
         total_steps=total_steps,
         val_check_interval=val_check_interval,
         device="cuda" if torch.cuda.is_available() else "cpu",
+        comment=comment,
         extra_hparams=dict(
             dummy_decoder=dummy_decoder,
             batch_size=batch_size,
@@ -81,7 +81,7 @@ def overfit(
     )
     )
     print("training")
-    fitter.overfit(trainable, train_dataloaders=train_dl, val_dataloaders=val_dl)
+    fitter.overfit(trainable, train_batch, val_batch)
 
 def train(
     datadir,
@@ -193,4 +193,4 @@ if __name__ == "__main__":
     print("handling args")
     from fire import Fire
 
-    Fire({"train": train, "inference": inference})
+    Fire({"train": train, "inference": inference, "overfit": overfit})
