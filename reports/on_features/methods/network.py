@@ -72,17 +72,19 @@ class SegFeatures(torch.nn.Module):
         self.decoder = decoder
 
     def forward(self, x):
+        B, C, H, W = x.shape
+        HoverP, WoverP = H // 14, W // 14
         x = self.model.forward_features(x)
         x = x[:, 5:, :]  # B, H//P x W//P, C
         x = x.permute(0, 2, 1)  # B, C, H//P x W//P
-        x = x.reshape(x.shape[0], x.shape[1], 37, 37)  # B, C, H//P, W//P
+        x = x.reshape(x.shape[0], x.shape[1], HoverP, WoverP)  # B, C, H//P, W//P
         x = self.decoder(x)
         return x
 
 
 def get_network(output_channels=3, dummy=False):
     encoder = timm.create_model(
-        "vit_small_patch14_reg4_dinov2.lvd142m", pretrained=False, num_classes=0
+        "vit_small_patch14_reg4_dinov2.lvd142m", pretrained=False, num_classes=0, pretrained_cfg_overlay=dict(input_size=(3,224,224))
     )
     pixelshuffle_scale = 14
     if dummy:
