@@ -148,17 +148,18 @@ class RectangleDataset(torch.utils.data.Dataset):
         return (image, mask)
 
 
-def get_train_val_ds(datadir):
-    traindsfile, valdsfile = Path(f"runs/trainds.pkl"), Path(
-        f"runs/valds.pkl"
-    )
-    traindsfile.parent.mkdir(exist_ok=True, parents=True)
-    if traindsfile.exists() and valdsfile.exists():
-        with open(traindsfile, "rb") as f:
-            train_ds = pickle.load(f)
-        with open(valdsfile, "rb") as f:
-            val_ds = pickle.load(f)
-        return train_ds, val_ds
+def get_train_val_ds(datadir, shortload=False):
+    if shortload:
+        traindsfile, valdsfile = Path(f"runs/trainds.pkl"), Path(
+            f"runs/valds.pkl"
+        )
+        traindsfile.parent.mkdir(exist_ok=True, parents=True)
+        if traindsfile.exists() and valdsfile.exists():
+            with open(traindsfile, "rb") as f:
+                train_ds = pickle.load(f)
+            with open(valdsfile, "rb") as f:
+                val_ds = pickle.load(f)
+            return train_ds, val_ds
 
     train_ds = RectangleDataset(datadir)
     val_ds = copy.deepcopy(train_ds)
@@ -168,10 +169,11 @@ def get_train_val_ds(datadir):
     val_ds.sample_paths = val_ds.sample_paths[
         -min(len(val_ds.sample_paths) // 10, 1000) :
     ]
-    with open(traindsfile, "wb") as f:
-        pickle.dump(train_ds, f)
-    with open(valdsfile, "wb") as f:
-        pickle.dump(val_ds, f)
+    if shortload:
+        with open(traindsfile, "wb") as f:
+            pickle.dump(train_ds, f)
+        with open(valdsfile, "wb") as f:
+            pickle.dump(val_ds, f)
     return train_ds, val_ds
 
 
