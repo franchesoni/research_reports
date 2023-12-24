@@ -76,31 +76,34 @@ class TrainableModule(torch.nn.Module):
     def forward(self, x):
         return self.model(x)
 
-    def training_step(self, batch, batch_idx, global_step):
+    def training_step(self, batch, batch_idx, global_step, log_imgs=True):
         x, y = batch
         y_hat = self.model(x)
         loss = self.loss_fn(y_hat, y)
         self.log("train_loss", loss, global_step)
-        if (
-            batch_idx == 0
-            and global_step > self.last_global_step + self.total_steps // 10 - 1
-        ):
-            self.last_global_step = global_step
-            for i in range(len(x)):
-                save_tensor_as_image(
-                    self.img_dstdir / f"train_img_{str(i).zfill(2)}",
-                    x[i],
-                    global_step=global_step,
-                )
-                for c in range(y_hat.shape[1]):
+
+        if log_imgs:
+            # logging
+            if (
+                batch_idx == 0
+                and global_step > self.last_global_step + self.total_steps // 10 - 1
+            ):
+                self.last_global_step = global_step
+                for i in range(len(x)):
                     save_tensor_as_image(
-                        self.out_dstdir / f"train_pred_{str(i).zfill(2)}_{c}",
-                        y_hat[i, c : c + 1],
+                        self.img_dstdir / f"train_img_{str(i).zfill(2)}",
+                        x[i],
                         global_step=global_step,
                     )
+                    for c in range(y_hat.shape[1]):
+                        save_tensor_as_image(
+                            self.out_dstdir / f"train_pred_{str(i).zfill(2)}_{c}",
+                            y_hat[i, c : c + 1],
+                            global_step=global_step,
+                        )
         return loss
 
-    def validation_step(self, batch, batch_idx, global_step):
+    def validation_step(self, batch, batch_idx, global_step, log_imgs=True):
         x, y = batch
         y_hat = self.model(x)
         loss = self.loss_fn(y_hat, y)
@@ -113,8 +116,7 @@ class TrainableModule(torch.nn.Module):
                 global_step,
             )
 
-        # save image
-        if batch_idx == 0:
+        if log_imgs and batch_idx == 0:
             for i in range(len(x)):
                 save_tensor_as_image(
                     self.img_dstdir / f"val_img_{str(i).zfill(2)}",
@@ -245,6 +247,112 @@ class Trainer:
             if self.fast_dev_run:
                 print("fast_dev_run, one validation only")
                 break
+
+    def _validate(self, model, val_dataloader):
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(val_dataloader):
+                batch = [item.to(self.device) for item in batch]
+                loss = model.validation_step(
+                    batch, batch_idx, global_step=self.global_step
+                )
+                check_for_nan(loss, model, batch)
+                val_loss += loss.item()
+
+        val_loss = val_loss / len(val_dataloader)
+        print(" " * 100, end="\r")
+        print(f"Global Step: {self.global_step}, Validation Loss: {val_loss:.4f}")
+
+        # Directory where logs are written
+        log_dir = model.logger.log_dir
+
+        # Checkpointing Last Validated Model
+        last_validated_model_path = os.path.join(log_dir, "last_validated_model.pth")
+        torch.save(model.state_dict(), last_validated_model_path)
+
+        # Checkpointing Best Model
+        if val_loss < self.best_val_loss:
+            self.best_val_loss = val_loss
+            best_model_path = os.path.join(log_dir, "best_model.pth")
+            torch.save(model.state_dict(), best_model_path)
+
+class Overfitter:
+    def __init__(
+        self,
+        total_steps=24,
+        val_check_interval=None,
+        device=None,
+        extra_hparams={},
+    ):
+        self.total_steps = total_steps 
+        self.val_check_interval = val_check_interval
+        self.device = device
+        self.best_val_loss = float("inf")
+        self.global_step = 0
+        self.hparams = extra_hparams
+
+
+    def overfit(self, model, train_batch, val_batch, compile=False):
+        model.to(self.device)
+        if compile:
+            print("compiling...")
+            model.model = torch.compile(model.model)
+            print("compiled.")
+        optimizer, scheduler = model.configure_optimizers()
+        # save hparams
+        hparams = {
+            "model": str(model.model.__class__.__name__),
+            "loss_fn": str(model.loss_fn),
+            "max_epochs": self.max_epochs,
+            "fast_dev_run": self.fast_dev_run,
+            "val_check_interval": self.val_check_interval,
+        } | self.hparams
+        print("hparams:", hparams)
+        model.logger.add_hparams(hparams, {})
+        with open(os.path.join(model.logger.log_dir, "hparams.txt"), "w") as f:
+            json.dump(hparams, f, indent=4)
+
+        step_width = len(str(self.total_steps))
+
+        for step in range(self.total_steps):
+            model.train()
+            batch = [item.to(self.device) for item in train_batch]
+            current_lr = optimizer.param_groups[0]["lr"]
+            model.logger.add_scalar("lr", current_lr, self.global_step)
+            loss = model.training_step(
+                batch, self.global_step, global_step=self.global_step, log_imgs=False
+            )
+            check_for_nan(loss, model, batch)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            self.global_step += 1
+
+            print(
+                f"{step / self.total_steps:.4%}".ljust(8)
+                + f"of training at step {step:{step_width}}, ".ljust(15)
+                + f"Train loss: {loss.item():.4f}",
+                end="\r",
+            )
+            # Validation Check at Specified Batch Interval
+            if (
+                self.val_check_interval
+                and self.global_step % self.val_check_interval == 0
+                or self.global_step == 1
+            ):
+                self._validate(
+                    model,
+                    val_batch,
+                )
+
+        self._validate(
+            model,
+            val_batch,
+        )
+
+
 
     def _validate(self, model, val_dataloader):
         model.eval()

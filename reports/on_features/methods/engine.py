@@ -29,6 +29,61 @@ def load_from_ckpt(trainable_module, ckpt_path):
         trainable_module.load_state_dict(ckpt)
     return trainable_module
 
+def overfit(
+    datadir,
+    loss_fn_name,
+    comment,
+    output_channels=3,
+    ckpt_path=None,
+    batch_size=8,
+    total_steps=9999,
+    dev=False,
+    val_check_interval=None,
+    dummy_decoder=False,
+    max_lr=1e-2,
+    weight_decay=5e-5,
+):
+    print("getting model")
+    net = get_network(output_channels=output_channels, dummy=dummy_decoder)
+
+    print("getting dataloaders")
+    train_ds, val_ds = get_train_val_ds(datadir)
+    train_ds.sample_paths = train_ds.sample_paths
+    val_ds.sample_paths = val_ds.sample_paths
+
+    train_batch = custom_collate([train_ds[i] for i in range(batch_size)])
+    val_batch = custom_collate([val_ds[i] for i in range(batch_size)])
+
+    print("initializing model and trainer")
+    loss_fn = losses_dict[loss_fn_name]
+    trainable = TrainableModule(
+        net,
+        loss_fn=loss_fn,
+        comment=comment,
+        max_lr=max_lr,
+        weight_decay=weight_decay,
+        total_steps=total_steps
+        )
+    trainable = load_from_ckpt(trainable, ckpt_path)
+
+    trainer = Trainer(
+        max_epochs=iterations,
+        # fast_dev_run=dev,
+        val_check_interval=val_check_interval,
+        device="cuda:1" if torch.cuda.is_available() else "cpu",
+        extra_hparams=dict(
+            iterations=iterations,
+            dummy_decoder=dummy_decoder,
+            batch_size=batch_size,
+            output_channels=output_channels,
+            comment=comment,
+            max_lr=max_lr,
+            weight_decay=weight_decay,
+            total_steps=total_steps,
+    )
+    )
+    print("training")
+    trainer.fit(trainable, train_dataloaders=train_dl, val_dataloaders=val_dl
 
 def train(
     datadir,
@@ -89,9 +144,9 @@ def train(
 
     trainer = Trainer(
         max_epochs=epochs,
-        fast_dev_run=dev,
+        # fast_dev_run=dev,
         val_check_interval=val_check_interval,
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device="cuda:1" if torch.cuda.is_available() else "cpu",
         extra_hparams=dict(
             train_size=train_size,
             val_size=val_size,
