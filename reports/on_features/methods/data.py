@@ -44,13 +44,15 @@ def generate_rectangles(image_size, num_rectangles):
 
 
 def generate_dataset_v2(
-    datadir, num_images, image_size=(518, 518), num_rectangles_choices=[6, 7, 8, 9], reset=False
+    datadir, num_images, image_size=518, num_rect=[6, 7, 8, 9], sigma_blur=5, reset=False
 ):
     """
     Generate a synthetic dataset of images with rectangles and their corresponding masks.
     The number of rectangles per image is chosen randomly from 'num_rectangles_choices'.
     Occasionally, rectangles will have the exact same color.
     """
+    image_size = (image_size, image_size)
+    num_rectangles_choices = num_rect
     datadir = Path(datadir)
     if reset and datadir.exists():
         shutil.rmtree(datadir)
@@ -100,7 +102,8 @@ def generate_dataset_v2(
 
         # Remove mask regions for overlapped rectangles
         labels = measure.label(mask)
-        image = (gaussian(image, sigma=5) * 255).astype(np.uint8)
+        if sigma_blur > 0:
+            image = (gaussian(image, sigma=sigma_blur) * 255).astype(np.uint8)
         # Save the image and mask
         cv2.imwrite(os.path.join(datadir, f"image_{str(i).zfill(strlen)}.png"), image)
         cv2.imwrite(os.path.join(datadir, f"mask_{str(i).zfill(strlen)}.png"), labels)
