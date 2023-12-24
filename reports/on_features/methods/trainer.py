@@ -50,6 +50,26 @@ def save_tensor_as_image(dstfile, tensor, global_step):
     )
     image.save(dstfile)
 
+def log_input_output(name, x, y_hat, global_step, img_dstdir, out_dstdir):
+    for i in range(len(x)):
+        save_tensor_as_image(
+            img_dstdir / f"input_{name}_{str(i).zfill(2)}",
+            x[i],
+            global_step=global_step,
+        )
+        for c in range(y_hat.shape[1]):
+            save_tensor_as_image(
+                out_dstdir / f"pred_channel_{name}_{str(i).zfill(2)}_{c}",
+                y_hat[i, c : c + 1],
+                global_step=global_step,
+            )
+        # log color image
+        save_tensor_as_image(
+            out_dstdir / f"pred_3channels_{name}_{str(i).zfill(2)}",
+            y_hat[i][:3],
+            global_step=global_step,
+        )
+
 
 class TrainableModule(torch.nn.Module):
     def __init__(
@@ -196,7 +216,7 @@ class Trainer:
                 self.global_step += 1
 
                 if x is not None and y_hat is not None:
-                    self.log_input_output("train", x, y_hat, self.global_step)
+                    log_input_output("train", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
 
                 if self.fast_dev_run:
                     print("fast_dev_run, one batch only")
@@ -255,7 +275,7 @@ class Trainer:
                     losses_placeholder[loss_name] += loss_val
                 # optionally log input output
                 if x is not None and y_hat is not None:
-                    self.log_input_output("val", x, y_hat, self.global_step)
+                    log_input_output("val", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
 
         losses_placeholder = {
             loss_name: loss_val / len(val_dataloader)
@@ -280,26 +300,7 @@ class Trainer:
             best_model_path = os.path.join(self.logger.log_dir, "best_model.pth")
             torch.save(model.state_dict(), best_model_path)
 
-    def log_input_output(self, name, x, y_hat, global_step):
-        for i in range(len(x)):
-            save_tensor_as_image(
-                self.img_dstdir / f"input_{name}_{str(i).zfill(2)}",
-                x[i],
-                global_step=global_step,
-            )
-            for c in range(y_hat.shape[1]):
-                save_tensor_as_image(
-                    self.out_dstdir / f"pred_channel_{name}_{str(i).zfill(2)}_{c}",
-                    y_hat[i, c : c + 1],
-                    global_step=global_step,
-                )
-            # log color image
-            save_tensor_as_image(
-                self.out_dstdir / f"pred_3channels_{str(i).zfill(2)}",
-                y_hat[i][:3],
-                global_step=global_step,
-            )
-        return loss
+
 
 
 class Overfitter:
@@ -345,7 +346,7 @@ class Overfitter:
             "val_check_interval": self.val_check_interval,
         } | self.hparams
         print("hparams:", hparams)
-        with open(os.path.join(model.logger.log_dir, "hparams.txt"), "w") as f:
+        with open(os.path.join(self.logger.log_dir, "hparams.txt"), "w") as f:
             json.dump(hparams, f, indent=4)
 
         step_width = len(str(self.total_steps))
@@ -373,7 +374,7 @@ class Overfitter:
             self.global_step += 1
 
             if x is not None and y_hat is not None:
-                self.log_input_output("train", x, y_hat, self.global_step)
+                log_input_output("train", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
 
             print(
                 f"{step / self.total_steps:.4%}".ljust(8)
@@ -407,16 +408,16 @@ class Overfitter:
         with torch.no_grad():
             loss, losses, x, y_hat = model.validation_step(
                 val_batch,
-                batch_idx,
+                batch_idx=0,
                 global_step=self.global_step,
                 return_input_output_for_logging=True,
             )
-            check_for_nan(loss, model, batch)
+            check_for_nan(loss, model, val_batch)
         self.log("val/main_loss", loss, self.global_step)
         for loss_name, loss_val in losses.items():
             self.log(f"val/{loss_name}", loss_val, self.global_step)
         if x is not None and y_hat is not None:
-            self.log_input_output("val", x, y_hat, self.global_step)
+            log_input_output("val", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
 
         print(" " * 79, end="\r")
         print(f"Global Step: {self.global_step}, Validation Loss: {val_loss:.4f}")
