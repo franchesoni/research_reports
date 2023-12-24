@@ -9,7 +9,7 @@ import torch
 print("importing internal...")
 from data import pad_resized_img, get_train_val_ds, custom_collate
 from losses import losses_dict
-from trainer import Trainer, TrainableModule
+from trainer import Trainer, TrainableModule, Overfitter
 from network import get_network
 
 print("firing...")
@@ -66,13 +66,11 @@ def overfit(
         )
     trainable = load_from_ckpt(trainable, ckpt_path)
 
-    trainer = Trainer(
-        max_epochs=iterations,
-        # fast_dev_run=dev,
+    fitter = Overfitter(
+        total_steps=total_steps,
         val_check_interval=val_check_interval,
-        device="cuda:1" if torch.cuda.is_available() else "cpu",
+        device="cuda" if torch.cuda.is_available() else "cpu",
         extra_hparams=dict(
-            iterations=iterations,
             dummy_decoder=dummy_decoder,
             batch_size=batch_size,
             output_channels=output_channels,
@@ -83,7 +81,7 @@ def overfit(
     )
     )
     print("training")
-    trainer.fit(trainable, train_dataloaders=train_dl, val_dataloaders=val_dl
+    fitter.overfit(trainable, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
 def train(
     datadir,
