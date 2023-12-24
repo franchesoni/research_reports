@@ -27,8 +27,9 @@ def check_for_nan(loss, model, batch):
         # now raise the error
         raise e
 
+
 def minmax(tensor):
-    '''min max norm of tensor, return 0.5 if constant'''
+    """min max norm of tensor, return 0.5 if constant"""
     if tensor.max() == tensor.min():
         return tensor.new_tensor(0.5)
     else:
@@ -45,7 +46,7 @@ def save_tensor_as_image(dstfile, tensor, global_step):
     image = Image.fromarray(tensor)
     dstfile = Path(dstfile)
     dstfile = (dstfile.parent / (dstfile.stem + "_" + str(global_step))).with_suffix(
-        ".png"
+        ".jpg"
     )
     image.save(dstfile)
 
@@ -55,7 +56,6 @@ class TrainableModule(torch.nn.Module):
         self,
         model,
         loss_fn,
-        comment="",
         max_lr=1e-2,
         weight_decay=5e-5,
         total_steps=1000,
@@ -63,79 +63,46 @@ class TrainableModule(torch.nn.Module):
         super().__init__()
         self.model = model
         self.loss_fn = loss_fn
-        self.logger = SummaryWriter(comment=comment)
-        self.img_dstdir = Path(self.logger.get_logdir()) / "images"
-        self.img_dstdir.mkdir(parents=True, exist_ok=True)
-        self.out_dstdir = self.img_dstdir.parent / "outputs"
-        self.out_dstdir.mkdir(parents=True, exist_ok=True)
         self.max_lr = max_lr
         self.total_steps = total_steps
-        self.last_global_step = 0
         self.weight_decay = weight_decay
 
     def forward(self, x):
         return self.model(x)
 
-    def training_step(self, batch, batch_idx, global_step, log_imgs=True):
+    def training_step(
+        self, batch, batch_idx, global_step, return_input_output_for_logging=True
+    ):
         x, y = batch
         y_hat = self.model(x)
         loss = self.loss_fn(y_hat, y)
-        self.log("train_loss", loss, global_step)
+        if return_input_output_for_logging:
+            return loss, x, y_hat
+        return loss, None, None
 
-        if log_imgs:
-            # logging
-            if (
-                batch_idx == 0
-                and global_step > self.last_global_step + self.total_steps // 10 - 1
-            ):
-                self.last_global_step = global_step
-                for i in range(len(x)):
-                    save_tensor_as_image(
-                        self.img_dstdir / f"train_img_{str(i).zfill(2)}",
-                        x[i],
-                        global_step=global_step,
-                    )
-                    for c in range(y_hat.shape[1]):
-                        save_tensor_as_image(
-                            self.out_dstdir / f"train_pred_{str(i).zfill(2)}_{c}",
-                            y_hat[i, c : c + 1],
-                            global_step=global_step,
-                        )
-        return loss
-
-    def validation_step(self, batch, batch_idx, global_step, log_imgs=True):
+    def validation_step(
+        self,
+        batch,
+        batch_idx,
+        global_step,
+        return_input_output_for_logging=True,
+        return_many_losses=True,
+    ):
+        # step
         x, y = batch
         y_hat = self.model(x)
         loss = self.loss_fn(y_hat, y)
-        self.log("val/main_loss", loss, global_step)
 
-        for loss_name, loss_fn in losses_dict.items():
-            self.log(
-                f"val/{loss_name}",
-                loss_fn(y_hat, y),
-                global_step,
-            )
+        # [optional] compute other losses
+        many_losses = {}
+        if return_many_losses:
+            for loss_name, loss_fn in losses_dict.items():
+                many_losses[loss_name] = loss_fn(y_hat, y)
 
-        if log_imgs and batch_idx == 0:
-            for i in range(len(x)):
-                save_tensor_as_image(
-                    self.img_dstdir / f"val_img_{str(i).zfill(2)}",
-                    x[i],
-                    global_step=global_step,
-                )
-                for c in range(y_hat.shape[1]):
-                    save_tensor_as_image(
-                        self.out_dstdir / f"val_pred_{str(i).zfill(2)}_{c}",
-                        y_hat[i, c : c + 1],
-                        global_step=global_step,
-                    )
-                # log color image
-                save_tensor_as_image(
-                    self.out_dstdir / f"val_img_{str(i).zfill(2)}_color",
-                    y_hat[i][:3],
-                    global_step=global_step,
-                )
-        return loss
+        # [optional] return input and output for logging
+        if return_input_output_for_logging:
+            return loss, many_losses, x, y_hat
+        return loss, many_losses, None, None
 
     def configure_optimizers(self):
         optim = SING(
@@ -150,9 +117,6 @@ class TrainableModule(torch.nn.Module):
         )
         return optim, scheduler
 
-    def log(self, name, value, step):
-        self.logger.add_scalar(name, value, step)
-
 
 class Trainer:
     def __init__(
@@ -161,16 +125,26 @@ class Trainer:
         fast_dev_run=False,
         val_check_interval=None,
         device=None,
+        comment="",
         extra_hparams={},
     ):
+        # training variables
         self.max_epochs = max_epochs
         self.fast_dev_run = fast_dev_run
         self.val_check_interval = val_check_interval
         self.device = device
         self.best_val_loss = float("inf")
         self.global_step = 0
+        # logging variables
         self.hparams = extra_hparams
+        self.logger = SummaryWriter(comment=comment)
+        self.img_dstdir = Path(self.logger.get_logdir()) / "images"
+        self.img_dstdir.mkdir(parents=True, exist_ok=True)
+        self.out_dstdir = self.img_dstdir.parent / "outputs"
+        self.out_dstdir.mkdir(parents=True, exist_ok=True)
 
+    def log(self, name, value, step):
+        self.logger.add_scalar(name, value, step)
 
     def fit(self, model, train_dataloaders, val_dataloaders, compile=False):
         model.to(self.device)
@@ -179,6 +153,7 @@ class Trainer:
             model.model = torch.compile(model.model)
             print("compiled.")
         optimizer, scheduler = model.configure_optimizers()
+
         # save hparams
         hparams = {
             "model": str(model.model.__class__.__name__),
@@ -188,10 +163,10 @@ class Trainer:
             "val_check_interval": self.val_check_interval,
         } | self.hparams
         print("hparams:", hparams)
-        model.logger.add_hparams(hparams, {})
-        with open(os.path.join(model.logger.log_dir, "hparams.txt"), "w") as f:
+        with open(os.path.join(self.logger.log_dir, "hparams.txt"), "w") as f:
             json.dump(hparams, f, indent=4)
 
+        # logging variables
         dllen = len(train_dataloaders)
         epoch_width = len(str(self.max_epochs))
         batch_idx_width = len(str(dllen))
@@ -200,13 +175,19 @@ class Trainer:
             # Training Phase
             for batch_idx, batch in enumerate(train_dataloaders):
                 model.train()
-
                 batch = [item.to(self.device) for item in batch]
                 current_lr = optimizer.param_groups[0]["lr"]
-                model.logger.add_scalar("lr", current_lr, self.global_step)
-                loss = model.training_step(
-                    batch, batch_idx, global_step=self.global_step
+                self.log("lr", current_lr, self.global_step)
+                loss, x, y_hat = model.training_step(
+                    batch,
+                    batch_idx,
+                    global_step=self.global_step,
+                    return_input_output_for_logging=batch_idx == 0
+                    and (
+                        self.global_step % (epoch * len(train_dataloaders) // 10)
+                    ),  # log train images every 10% of training
                 )
+                self.log("train_loss", loss, global_step)
                 check_for_nan(loss, model, batch)
                 optimizer.zero_grad()
                 loss.backward()
@@ -214,11 +195,13 @@ class Trainer:
                 scheduler.step()
                 self.global_step += 1
 
+                if x is not None and y_hat is not None:
+                    self.log_input_output("train", x, y_hat, self.global_step)
+
                 if self.fast_dev_run:
                     print("fast_dev_run, one batch only")
                     break
 
-                # print(' ' * 100, end='\r')
                 print(
                     f"{batch_idx / dllen:.4%}".ljust(8)
                     + f"of epoch {epoch:{epoch_width}}".ljust(15)
@@ -248,34 +231,76 @@ class Trainer:
                 print("fast_dev_run, one validation only")
                 break
 
+        # log hparams
+        self.logger.add_hparams(hparams, {})
+
     def _validate(self, model, val_dataloader):
         model.eval()
         val_loss = 0
         with torch.no_grad():
+            losses_placeholder = {"main_loss": 0} | {
+                loss_name: 0 for loss_name in losses_dict.keys()
+            }
             for batch_idx, batch in enumerate(val_dataloader):
                 batch = [item.to(self.device) for item in batch]
-                loss = model.validation_step(
-                    batch, batch_idx, global_step=self.global_step
+                loss, losses, x, y_hat = model.validation_step(
+                    batch,
+                    batch_idx,
+                    global_step=self.global_step,
+                    return_input_output_for_logging=batch_idx == 0,
                 )
                 check_for_nan(loss, model, batch)
-                val_loss += loss.item()
+                losses_placeholder["main_loss"] += loss
+                for loss_name, loss_val in losses.items():
+                    losses_placeholder[loss_name] += loss_val
+                # optionally log input output
+                if x is not None and y_hat is not None:
+                    self.log_input_output("val", x, y_hat, self.global_step)
+
+        losses_placeholder = {
+            loss_name: loss_val / len(val_dataloader)
+            for loss_name, loss_val in losses_placeholder.items()
+        }
+        for loss_name, loss_val in losses_placeholder.items():
+            self.log(f"val/{loss_name}", loss_val, self.global_step)
 
         val_loss = val_loss / len(val_dataloader)
         print(" " * 100, end="\r")
         print(f"Global Step: {self.global_step}, Validation Loss: {val_loss:.4f}")
 
-        # Directory where logs are written
-        log_dir = model.logger.log_dir
-
         # Checkpointing Last Validated Model
-        last_validated_model_path = os.path.join(log_dir, "last_validated_model.pth")
+        last_validated_model_path = os.path.join(
+            self.logger.log_dir, "last_validated_model.pth"
+        )
         torch.save(model.state_dict(), last_validated_model_path)
 
         # Checkpointing Best Model
         if val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
-            best_model_path = os.path.join(log_dir, "best_model.pth")
+            best_model_path = os.path.join(self.logger.log_dir, "best_model.pth")
             torch.save(model.state_dict(), best_model_path)
+
+    def log_input_output(self, name, x, y_hat, global_step):
+        for i in range(len(x)):
+            save_tensor_as_image(
+                self.img_dstdir / f"input_{name}_{str(i).zfill(2)}",
+                x[i],
+                global_step=global_step,
+            )
+            for c in range(y_hat.shape[1]):
+                save_tensor_as_image(
+                    self.out_dstdir / f"pred_channel_{name}_{str(i).zfill(2)}_{c}",
+                    y_hat[i, c : c + 1],
+                    global_step=global_step,
+                )
+            # log color image
+            save_tensor_as_image(
+                self.out_dstdir / f"pred_3channels_{str(i).zfill(2)}",
+                y_hat[i][:3],
+                global_step=global_step,
+            )
+        return loss
+
 
 class Overfitter:
     def __init__(
@@ -283,15 +308,26 @@ class Overfitter:
         total_steps=24,
         val_check_interval=None,
         device=None,
+        comment="",
         extra_hparams={},
     ):
-        self.total_steps = total_steps 
+        # training variables
+        self.total_steps = total_steps
         self.val_check_interval = val_check_interval
         self.device = device
         self.best_val_loss = float("inf")
         self.global_step = 0
+        # logging variables
         self.hparams = extra_hparams
+        self.logger = SummaryWriter(comment=comment)
+        self.img_dstdir = Path(self.logger.get_logdir()) / "images"
+        self.img_dstdir.mkdir(parents=True, exist_ok=True)
+        self.out_dstdir = self.img_dstdir.parent / "outputs"
+        self.out_dstdir.mkdir(parents=True, exist_ok=True)
+        self.last_global_step = 0
 
+    def log(self, name, value, step):
+        self.logger.add_scalar(name, value, step)
 
     def overfit(self, model, train_batch, val_batch, compile=False):
         model.to(self.device)
@@ -300,35 +336,44 @@ class Overfitter:
             model.model = torch.compile(model.model)
             print("compiled.")
         optimizer, scheduler = model.configure_optimizers()
+
         # save hparams
         hparams = {
             "model": str(model.model.__class__.__name__),
             "loss_fn": str(model.loss_fn),
-            "max_epochs": self.max_epochs,
-            "fast_dev_run": self.fast_dev_run,
+            "total_steps": self.total_steps,
             "val_check_interval": self.val_check_interval,
         } | self.hparams
         print("hparams:", hparams)
-        model.logger.add_hparams(hparams, {})
         with open(os.path.join(model.logger.log_dir, "hparams.txt"), "w") as f:
             json.dump(hparams, f, indent=4)
 
         step_width = len(str(self.total_steps))
 
+        batch = [item.to(self.device) for item in train_batch]
+        val_batch = [item.to(self.device) for item in val_batch]
         for step in range(self.total_steps):
             model.train()
-            batch = [item.to(self.device) for item in train_batch]
             current_lr = optimizer.param_groups[0]["lr"]
-            model.logger.add_scalar("lr", current_lr, self.global_step)
-            loss = model.training_step(
-                batch, self.global_step, global_step=self.global_step, log_imgs=False
+            self.log("lr", current_lr, self.global_step)
+            loss, x, y_hat = model.training_step(
+                batch,
+                batch_idx=0,
+                global_step=self.global_step,
+                return_input_output_for_logging=self.global_step
+                % (self.total_steps // 10)
+                == 0,
             )
+            self.log("train_loss", loss, self.global_step)
             check_for_nan(loss, model, batch)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step()
             self.global_step += 1
+
+            if x is not None and y_hat is not None:
+                self.log_input_output("train", x, y_hat, self.global_step)
 
             print(
                 f"{step / self.total_steps:.4%}".ljust(8)
@@ -347,38 +392,31 @@ class Overfitter:
                     val_batch,
                 )
 
+        # last validation
         self._validate(
             model,
             val_batch,
         )
 
+        # log hparams
+        self.logger.add_hparams(hparams, {})
 
-
-    def _validate(self, model, val_dataloader):
+    def _validate(self, model, val_batch):
         model.eval()
         val_loss = 0
         with torch.no_grad():
-            for batch_idx, batch in enumerate(val_dataloader):
-                batch = [item.to(self.device) for item in batch]
-                loss = model.validation_step(
-                    batch, batch_idx, global_step=self.global_step
-                )
-                check_for_nan(loss, model, batch)
-                val_loss += loss.item()
+            loss, losses, x, y_hat = model.validation_step(
+                val_batch,
+                batch_idx,
+                global_step=self.global_step,
+                return_input_output_for_logging=True,
+            )
+            check_for_nan(loss, model, batch)
+        self.log("val/main_loss", loss, self.global_step)
+        for loss_name, loss_val in losses.items():
+            self.log(f"val/{loss_name}", loss_val, self.global_step)
+        if x is not None and y_hat is not None:
+            self.log_input_output("val", x, y_hat, self.global_step)
 
-        val_loss = val_loss / len(val_dataloader)
-        print(" " * 100, end="\r")
+        print(" " * 79, end="\r")
         print(f"Global Step: {self.global_step}, Validation Loss: {val_loss:.4f}")
-
-        # Directory where logs are written
-        log_dir = model.logger.log_dir
-
-        # Checkpointing Last Validated Model
-        last_validated_model_path = os.path.join(log_dir, "last_validated_model.pth")
-        torch.save(model.state_dict(), last_validated_model_path)
-
-        # Checkpointing Best Model
-        if val_loss < self.best_val_loss:
-            self.best_val_loss = val_loss
-            best_model_path = os.path.join(log_dir, "best_model.pth")
-            torch.save(model.state_dict(), best_model_path)
