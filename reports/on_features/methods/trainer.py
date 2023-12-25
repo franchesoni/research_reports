@@ -8,7 +8,7 @@ from PIL import Image
 
 from losses import losses_dict
 from sing import SING
-from lr_schedule import FileBasedLRScheduler, file_path as lr_file_path
+# from lr_schedule import FileBasedLRScheduler, file_path as lr_file_path
 
 
 def check_for_nan(loss, model, batch):
@@ -127,27 +127,17 @@ class TrainableModule(torch.nn.Module):
 
     def configure_optimizers(self):
         optim = SING(
-            self.parameters(), lr=self.max_lr / 10, weight_decay=self.weight_decay
+            self.parameters(), lr=self.max_lr // 10, weight_decay=self.weight_decay
         )
-        scheduler = FileBasedLRScheduler(optim, lr_file_path)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optim,
+            max_lr=self.max_lr,
+            total_steps=self.total_steps,
+            verbose=False,
+            pct_start=0.05,
+            final_div_factor=1e12,
+        )
 
-        # scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        #     optim,
-        #     max_lr=self.max_lr,
-        #     total_steps=self.total_steps,
-        #     verbose=False,
-        #     pct_start=0.05,
-        # )
-        # scheduler = torch.optim.lr_scheduler.CyclicLR(
-        #     optim,
-        #     base_lr=1e-8,
-        #     max_lr=self.max_lr,
-        #     step_size_up=int(self.total_steps*0.005),
-        #     step_size_down=int(self.total_steps*0.095),
-        #     mode='triangular2',
-        #     gamma=0.5,
-        #     cycle_momentum=False,
-        # )
 
  
         return optim, scheduler
@@ -241,7 +231,8 @@ class Trainer:
                     f"{batch_idx / dllen:.4%}".ljust(8)
                     + f"of epoch {epoch:{epoch_width}}".ljust(15)
                     + f", Batch: {batch_idx:{batch_idx_width}} / {dllen},".ljust(20)
-                    + f"Train loss: {loss.item():.4f}",
+                    + f"Train loss: {loss.item():.3e}"
+                    + f", lr: {current_lr:.3e}",
                     end="\r",
                 )
                 # Validation Check at Specified Batch Interval
@@ -376,9 +367,9 @@ class Overfitter:
                 batch,
                 batch_idx=0,
                 global_step=self.global_step,
-                return_input_output_for_logging=self.global_step
+                return_input_output_for_logging=(self.global_step
                 % (self.total_steps // 10)
-                == 0,
+                == 0) or (step == self.total_steps - 1),
             )
             self.log("train_loss", loss, self.global_step)
             check_for_nan(loss, model, batch)
@@ -394,7 +385,8 @@ class Overfitter:
             print(
                 f"{step / self.total_steps:.4%}".ljust(8)
                 + f"of training at step {step:{step_width}}, ".ljust(15)
-                + f"Train loss: {loss.item():.4f}",
+                + f"Train loss: {loss.item():.3e}"
+                + f", lr: {current_lr:.3e}",
                 end="\r",
             )
             # Validation Check at Specified Batch Interval
