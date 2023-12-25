@@ -8,6 +8,7 @@ from PIL import Image
 
 from losses import losses_dict
 from sing import SING
+from lr_schedule import FileBasedLRScheduler, file_path as lr_file_path
 
 
 def check_for_nan(loss, model, batch):
@@ -128,13 +129,27 @@ class TrainableModule(torch.nn.Module):
         optim = SING(
             self.parameters(), lr=self.max_lr / 10, weight_decay=self.weight_decay
         )
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optim,
-            max_lr=self.max_lr,
-            total_steps=self.total_steps,
-            verbose=False,
-            pct_start=0.05,
-        )
+        scheduler = FileBasedLRScheduler(optim, lr_file_path)
+
+        # scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        #     optim,
+        #     max_lr=self.max_lr,
+        #     total_steps=self.total_steps,
+        #     verbose=False,
+        #     pct_start=0.05,
+        # )
+        # scheduler = torch.optim.lr_scheduler.CyclicLR(
+        #     optim,
+        #     base_lr=1e-8,
+        #     max_lr=self.max_lr,
+        #     step_size_up=int(self.total_steps*0.005),
+        #     step_size_down=int(self.total_steps*0.095),
+        #     mode='triangular2',
+        #     gamma=0.5,
+        #     cycle_momentum=False,
+        # )
+
+ 
         return optim, scheduler
 
 
@@ -207,7 +222,7 @@ class Trainer:
                         self.global_step % (epoch * len(train_dataloaders) // 10)
                     ),  # log train images every 10% of training
                 )
-                self.log("train_loss", loss, global_step)
+                self.log("train_loss", loss, self.global_step)
                 check_for_nan(loss, model, batch)
                 optimizer.zero_grad()
                 loss.backward()
