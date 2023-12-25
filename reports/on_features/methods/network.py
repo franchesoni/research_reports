@@ -65,11 +65,10 @@ class MaskFeatureDecoder(torch.nn.Module):
         return x
 
 
-class SegFeatures(torch.nn.Module):
-    def __init__(self, model, decoder):
+class ViT_small_with_registers_forward(torch.nn.Module):
+    def __init__(self, model):
         super().__init__()
         self.model = model
-        self.decoder = decoder
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -78,28 +77,47 @@ class SegFeatures(torch.nn.Module):
         x = x[:, 5:, :]  # B, H//P x W//P, C
         x = x.permute(0, 2, 1)  # B, C, H//P x W//P
         x = x.reshape(x.shape[0], x.shape[1], HoverP, WoverP)  # B, C, H//P, W//P
-        x = self.decoder(x)
         return x
 
+class EffifientViT_b3_forward(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
 
-def get_network(output_channels=3, dummy=False):
-    encoder = timm.create_model(
-        "vit_small_patch14_reg4_dinov2.lvd142m", pretrained=False, num_classes=0, pretrained_cfg_overlay=dict(input_size=(3,224,224))
-    )
-    pixelshuffle_scale = 14
+    def forward(self, x):
+        return self.model.forward_features(x)
+
+def get_network(output_channels=3, dummy=False, model='effvitb3'):
+    assert model in ['vitregs', 'effvitb3']
+
+    if model == 'vitregs':
+        bbone = timm.create_model(
+            "vit_small_patch14_reg4_dinov2.lvd142m", pretrained=False, num_classes=0, pretrained_cfg_overlay=dict(input_size=(3,224,224))
+        )
+        encoder = ViT_small_with_registers_forward(bbone)
+        pixelshuffle_scale = 14
+        in_channel = 348
+    elif model == 'effvitb3':
+        bbone = timm.create_model(
+            "efficientvit_b3.r224_in1k", pretrained=False, num_classes=0
+        )
+        encoder = EffifientViT_b3_forward(bbone)
+        pixelshuffle_scale = 32
+        in_channel = 512
+
     if dummy:
         decoder = DummyUpsampling(
-            in_channel=348,
+            in_channel=in_channel,
             pixelshuffle_scale=pixelshuffle_scale,
             output_channels=output_channels,
         )
     else:
         decoder = MaskFeatureDecoder(
-            in_channel=384,
+            in_channel=in_channel,
             head_width=pixelshuffle_scale**2 * output_channels,
             pixelshuffle_scale=pixelshuffle_scale,
         )
-    network = SegFeatures(encoder, decoder)
+    network = torch.nn.Sequential(encoder, decoder)
     return network
 
 
