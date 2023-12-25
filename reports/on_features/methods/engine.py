@@ -42,6 +42,7 @@ def overfit(
     dummy_decoder=False,
     max_lr=1e-2,
     weight_decay=5e-5,
+    gpu_number=0,
 ):
     print("getting model")
     net = get_network(output_channels=output_channels, dummy=dummy_decoder)
@@ -68,7 +69,7 @@ def overfit(
     fitter = Overfitter(
         total_steps=total_steps,
         val_check_interval=val_check_interval,
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device=f"cuda:{gpu_number}" if torch.cuda.is_available() else "cpu",
         comment=comment,
         extra_hparams=dict(
             dummy_decoder=dummy_decoder,
