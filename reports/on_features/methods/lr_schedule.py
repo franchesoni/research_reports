@@ -14,7 +14,8 @@ class FileBasedLRScheduler(torch.optim.lr_scheduler._LRScheduler):
         self.cached_lr = None
         self.default_lr = default_lr
         super().__init__(optimizer, last_epoch)
-        self.read_lr_from_file()  # Initial read to set up the scheduler
+        with open(file_path, "w") as file:
+            file.write(str(self.default_lr))
 
     def read_lr_from_file(self):
         """
@@ -40,7 +41,7 @@ class FileBasedLRScheduler(torch.optim.lr_scheduler._LRScheduler):
         if not os.path.isfile(self.file_path):
             # Write the learning rate to the specified file
             with open(file_path, "w") as file:
-                file.write(self.default_lr)
+                file.write(str(self.default_lr))
             print(
                 f"The learning rate {self.default_lr} has been written to {file_path}."
             )
