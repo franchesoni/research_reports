@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 
 from losses import losses_dict
-from sing import SING
+from extras.sing import SING
 # from lr_schedule import FileBasedLRScheduler, file_path as lr_file_path
 
 
