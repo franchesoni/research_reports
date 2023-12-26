@@ -37,7 +37,6 @@ def overfit(
     ckpt_path=None,
     batch_size=8,
     total_steps=9999,
-    dev=False,
     val_check_interval=None,
     dummy_decoder=False,
     max_lr=1e-2,
@@ -49,8 +48,6 @@ def overfit(
 
     print("getting dataloaders")
     train_ds, val_ds = get_train_val_ds(datadir)
-    train_ds.sample_paths = train_ds.sample_paths
-    val_ds.sample_paths = val_ds.sample_paths
 
     train_batch = custom_collate([train_ds[i] for i in range(batch_size)])
     val_batch = custom_collate([val_ds[i] for i in range(batch_size)])
