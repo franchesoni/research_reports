@@ -307,9 +307,13 @@ losses_dict = {"simplest": simplest_loss,
 
 def try_loss(loss_name, runname=None, datadir='ofdata', sample_index=3, n_iter=1000, out_channels=3):
     from pathlib import Path
-    from utils import get_current_git_commit if runname is None:
+    from utils import get_current_git_commit
+    if runname is None:
         from haikunator import Haikunator
         runname = Haikunator().haikunate()
+    import datetime
+    runname = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{runname}"
+
     dstdir = Path('ascent') / runname
     dstdir.mkdir(exist_ok=False, parents=True)
     hparams = {'loss_name': loss_name,
@@ -320,6 +324,8 @@ def try_loss(loss_name, runname=None, datadir='ofdata', sample_index=3, n_iter=1
                 'out_channels': out_channels,
                 'git_commit': get_current_git_commit(),
                 }
+    with open(dstdir / 'hparams.txt', 'w') as f:
+        f.write(str(hparams))
 
     loss_fn = losses_dict[loss_name]
     from data import get_train_val_ds, custom_collate
@@ -329,7 +335,7 @@ def try_loss(loss_name, runname=None, datadir='ofdata', sample_index=3, n_iter=1
     train_ds, _ = get_train_val_ds(datadir)
     train_batch = custom_collate([train_ds[sample_index]])
     image, masks = train_batch
-    save_tensor_as_image('ascent/image.jpg', image[0], 0)
+    save_tensor_as_image(dstdir / 'image.jpg', image[0], 0)
 
     # do gradient ascent from tensor
     output = torch.randn(size=(1, out_channels, 224, 224), requires_grad=True)
@@ -345,8 +351,11 @@ def try_loss(loss_name, runname=None, datadir='ofdata', sample_index=3, n_iter=1
         print(f"{i} / {n_iter}, loss: {loss.item():.4e}", end="\r")
 
         if i % (n_iter // 10) == 0:
-            save_tensor_as_image('ascent/ascent.jpg', output[0], i)
+            save_tensor_as_image(dstdir / 'ascent.jpg', output[0], i)
 
+    print('Done')
+    with open(dstdir / 'done.txt', 'w') as f:
+        f.write('Done')
 
 
 if __name__ == '__main__':
