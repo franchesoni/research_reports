@@ -132,7 +132,7 @@ def simplest_hinge(features, masks, ball_radius=0.15, reg_w=None, use_push_cente
     loss = loss.mean()  # mean over batch
     return loss
 
-def offset_to_center(features, masks):
+def offset_to_center(features, masks, reg_w=None):
     """Try to predict as feature the center of the mask"""
     features = symlog(features)
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
@@ -163,6 +163,8 @@ def offset_to_center(features, masks):
     loss = loss.sum(dim=2) / masks.reshape(B, M, H * W).sum(dim=2)  # B, M, distance
     loss = loss.sum(dim=1) / M  # mean over masks
     loss = loss.mean()  # mean over batch
+    reg_loss = 0 if reg_w is None else reg_w * torch.norm(features, dim=2, p=1).mean()
+    loss = loss + reg_loss
     return loss
 
 def global_variance(features, masks):
@@ -305,6 +307,8 @@ def global_variance(features, masks):
 #                }
 
 
+
+
 losses_dict = {"simplest": simplest_loss,
                "hinge": simplest_hinge,
                "offset": offset_to_center,
@@ -314,7 +318,7 @@ def try_loss(loss_name, runname=None, datadir='ofdata', sample_index=3, n_iter=1
     assert type(loss_kwargs) == dict, "loss_kwargs must be a dict, use quotes"
     from pathlib import Path
     import json
-    from utils import get_current_git_commit
+    from extras.utils import get_current_git_commit
     if runname is None:
         from haikunator import Haikunator
         runname = Haikunator().haikunate()
