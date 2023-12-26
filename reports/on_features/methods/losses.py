@@ -65,7 +65,7 @@ def simplest_loss(features, masks, alpha=1e-3):
     return loss
 
 
-def simplest_hinge(features, masks, ball_radius=0.15, reg_w=None):
+def simplest_hinge(features, masks, ball_radius=0.15, reg_w=None, use_push_centers=True):
     """Pull features of one mask to its center if they're outside pull ball. Push features external to the mask away from the center if they're inside push ball. Push centers apart if they're contained in the same push centers ball."""
     if reg_w is None:
         features = torch.sigmoid(features)
@@ -98,27 +98,32 @@ def simplest_hinge(features, masks, ball_radius=0.15, reg_w=None):
         torch.clamp(push_ball_radius - distances, min=0) * (~masks.reshape(B, M, H * W))
     ).sum(dim=2) / (~masks.reshape(B, M, H * W)).sum(dim=2)
     push_loss = push_loss.sum(dim=1) / M  # mean over masks
-    # push centers loss: push centers away from each other if they're inside the push centers ball and the masks don't overlap
-    distinct_masks = (
-        (masks.reshape(B, M, 1, H * W) * masks.reshape(B, 1, M, H * W)) != 0
-    ).any(
-        dim=3
-    )  # B, M, M
-    center_distances = torch.clamp(
-        push_centers_ball_radius
-        - torch.cdist(mean_features.reshape(B, M, F), mean_features.reshape(B, M, F)),
-        min=0,
-    )  # B, M, M, hinged
-    push_centers_loss = (
-        (
-            center_distances
-            * distinct_masks
-            * (torch.eye(M, device=masks.device)[None] == 0)
-        ).sum(dim=(1, 2))
-        / (M * (M - 1))
-        if M > 1
-        else 0
-    )
+
+
+    if use_push_centers:
+        # push centers loss: push centers away from each other if they're inside the push centers ball and the masks don't overlap
+        distinct_masks = (
+            (masks.reshape(B, M, 1, H * W) * masks.reshape(B, 1, M, H * W)) != 0
+        ).any(
+            dim=3
+        )  # B, M, M
+        center_distances = torch.clamp(
+            push_centers_ball_radius
+            - torch.cdist(mean_features.reshape(B, M, F), mean_features.reshape(B, M, F)),
+            min=0,
+        )  # B, M, M, hinged
+        push_centers_loss = (
+            (
+                center_distances
+                * distinct_masks
+                * (torch.eye(M, device=masks.device)[None] == 0)
+            ).sum(dim=(1, 2))
+            / (M * (M - 1))
+            if M > 1
+            else 0
+        )
+    else:
+        push_centers_loss = 0
 
     ## comment out regularization loss
 
