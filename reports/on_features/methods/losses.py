@@ -35,9 +35,9 @@ def get_row_col(H, W, device):
     
 
 
-def simplest_loss(features, masks, alpha=1e-3):
+def simplest_loss(features, masks, alpha=1, reg_w=None):
     """Pull features of one mask to its center. Push features external to the mask away from the center."""
-    features = symlog(features)
+    features = torch.sigmoid(features) if reg_w is None else symlog(features)
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
 
     mask_features = features * masks  # B, M, F, H*W
@@ -59,8 +59,8 @@ def simplest_loss(features, masks, alpha=1e-3):
     ).sum(dim=2)
     push_loss = push_loss.sum(dim=1) / M  # mean over masks
 
-    reg_loss = torch.norm(mean_features, dim=2, p=1).sum(dim=1) / M  # mean over masks
-    loss = alpha * pull_loss + push_loss + 0.001 * reg_loss
+    reg_loss = 0 if reg_w is None else reg_w * torch.norm(mean_features, dim=2, p=1).sum(dim=1) / M  # mean over masks
+    loss = alpha * pull_loss + push_loss + reg_loss
     loss = loss.mean()  # mean over batch
     return loss
 
