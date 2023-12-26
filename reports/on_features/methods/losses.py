@@ -65,12 +65,16 @@ def simplest_loss(features, masks, alpha=1e-3):
     return loss
 
 
-def simplest_hinge(features, masks, ball_radius=0.05):
+def simplest_hinge(features, masks, ball_radius=0.15, reg_w=None):
     """Pull features of one mask to its center if they're outside pull ball. Push features external to the mask away from the center if they're inside push ball. Push centers apart if they're contained in the same push centers ball."""
-    features = symlog(features)
+    if reg_w is None:
+        features = torch.sigmoid(features)
+    else:
+        features = symlog(features)
     masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
     # assuming the number of dimensions is N=4, then the number of balls that can fit in the big ball of radius 0.5 is 0.5**N / r**N, where r is the small radius. To get a number of balls of around 10^4 we can use r = 0.05.
-    assert ball_radius == 0.05
+    # assert ball_radius == 0.05
+
     # define ball radii
     pull_ball_radius = ball_radius
     push_ball_radius = 2 * ball_radius
@@ -117,8 +121,9 @@ def simplest_hinge(features, masks, ball_radius=0.05):
     )
 
     ## comment out regularization loss
-    reg_loss = torch.norm(mean_features, dim=2, p=1).sum(dim=1) / M  # mean over masks
-    loss = pull_loss + push_loss + push_centers_loss + 0.001 * reg_loss
+
+    reg_loss = 0 if reg_w is None else reg_w * torch.norm(mean_features, dim=2, p=1).sum(dim=1) / M  # mean over masks
+    loss = pull_loss + push_loss + push_centers_loss + reg_loss
     loss = loss.mean()  # mean over batch
     return loss
 
@@ -294,7 +299,41 @@ def global_variance(features, masks):
 #                'multiscale_mean': partial(multiscale_loss, use_min=False),
 #                }
 
+
 losses_dict = {"simplest": simplest_loss,
                "hinge": simplest_hinge,
                "offset": offset_to_center,
                "global_var": global_variance,}
+
+def try_loss(loss_name, datadir='ofdata', sample_index=3, n_iter=1000, out_channels=3):
+    loss_fn = losses_dict[loss_name]
+    from data import get_train_val_ds, custom_collate
+    from trainer import save_tensor_as_image
+
+    print("getting dataloaders")
+    train_ds, _ = get_train_val_ds(datadir)
+    train_batch = custom_collate([train_ds[sample_index]])
+    image, masks = train_batch
+    save_tensor_as_image('ascent/image.jpg', image[0], 0)
+
+    # do gradient ascent from tensor
+    output = torch.randn(size=(1, out_channels, 224, 224), requires_grad=True)
+    optimizer = torch.optim.Adam([output], lr=1)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=n_iter // 10, verbose=True)
+
+    for i in range(n_iter):
+        loss = loss_fn(output, masks)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        scheduler.step(loss)
+        print(f"{i} / {n_iter}, loss: {loss.item():.4e}", end="\r")
+
+        if i % (n_iter // 10) == 0:
+            save_tensor_as_image('ascent/ascent.jpg', output[0], i)
+
+
+
+if __name__ == '__main__':
+    from fire import Fire
+    Fire(try_loss)
