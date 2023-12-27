@@ -1,14 +1,11 @@
 from __future__ import print_function, division
 
 import torch
-from torch.autograd import Variable
 import torch.nn.functional as F
 import numpy as np
-try:
-    from itertools import ifilterfalse
-except ImportError:  # py3k
-    from itertools import filterfalse
-
+import torch.nn as nn
+from itertools import filterfalse as ifilterfalse
+from extras.losses_utils import preprocess_masks_features
 
 def lovasz_grad(gt_sorted):
     """
@@ -23,50 +20,6 @@ def lovasz_grad(gt_sorted):
     if p > 1:  # cover 1-pixel case
         jaccard[1:p] = jaccard[1:p] - jaccard[0:-1]
     return jaccard
-
-
-def iou_binary(preds, labels, EMPTY=1., ignore=None, per_image=True):
-    """
-    IoU for foreground class
-    binary: 1 foreground, 0 background
-    """
-    if not per_image:
-        preds, labels = (preds,), (labels,)
-    ious = []
-    for pred, label in zip(preds, labels):
-        intersection = ((label == 1) & (pred == 1)).sum()
-        union = ((label == 1) | ((pred == 1) & (label != ignore))).sum()
-        if not union:
-            iou = EMPTY
-        else:
-            iou = float(intersection) / union
-        ious.append(iou)
-    iou = mean(ious)    # mean accross images if per_image
-    return 100 * iou
-
-
-def iou(preds, labels, C, EMPTY=1., ignore=None, per_image=False):
-    """
-    Array of IoU for each (non ignored) class
-    """
-    if not per_image:
-        preds, labels = (preds,), (labels,)
-    ious = []
-    for pred, label in zip(preds, labels):
-        iou = []
-        for i in range(C):
-            # The ignored label is sometimes among predicted classes (ENet - CityScapes)
-            if i != ignore:
-                intersection = ((label == i) & (pred == i)).sum()
-                union = ((label == i) | (
-                    (pred == i) & (label != ignore))).sum()
-                if not union:
-                    iou.append(EMPTY)
-                else:
-                    iou.append(float(intersection) / union)
-        ious.append(iou)
-    ious = map(mean, zip(*ious))  # mean accross images if per_image
-    return 100 * np.array(ious)
 
 
 # --------------------------- BINARY LOSSES ---------------------------
@@ -100,12 +53,12 @@ def lovasz_hinge_flat(logits, labels):
         # only void pixels, the gradients should be 0
         return logits.sum() * 0.
     signs = 2. * labels.float() - 1.
-    errors = (1. - logits * Variable(signs))
+    errors = (1. - logits * signs)
     errors_sorted, perm = torch.sort(errors, dim=0, descending=True)
     perm = perm.data
     gt_sorted = labels[perm]
     grad = lovasz_grad(gt_sorted)
-    loss = torch.dot(F.relu(errors_sorted), Variable(grad))
+    loss = torch.dot(F.relu(errors_sorted), grad)
     return loss
 
 
@@ -123,93 +76,6 @@ def flatten_binary_scores(scores, labels, ignore=None):
     vlabels = labels[valid]
     return vscores, vlabels
 
-
-class StableBCELoss(torch.nn.modules.Module):
-    def __init__(self):
-        super(StableBCELoss, self).__init__()
-
-    def forward(self, input, target):
-        neg_abs = - input.abs()
-        loss = input.clamp(min=0) - input * target + (1 + neg_abs.exp()).log()
-        return loss.mean()
-
-
-def binary_xloss(logits, labels, ignore=None):
-    """
-    Binary Cross entropy loss
-      logits: [B, H, W] Variable, logits at each pixel (between -\infty and +\infty)
-      labels: [B, H, W] Tensor, binary ground truth masks (0 or 1)
-      ignore: void class id
-    """
-    logits, labels = flatten_binary_scores(logits, labels, ignore)
-    loss = StableBCELoss()(logits, Variable(labels.float()))
-    return loss
-
-
-# --------------------------- MULTICLASS LOSSES ---------------------------
-
-
-def lovasz_softmax(probas, labels, only_present=False, per_image=False, ignore=None):
-    """
-    Multi-class Lovasz-Softmax loss
-      probas: [B, C, H, W] Variable, class probabilities at each prediction (between 0 and 1)
-      labels: [B, H, W] Tensor, ground truth labels (between 0 and C - 1)
-      only_present: average only on classes present in ground truth
-      per_image: compute the loss per image instead of per batch
-      ignore: void class labels
-    """
-    if per_image:
-        loss = mean(lovasz_softmax_flat(*flatten_probas(prob.unsqueeze(0), lab.unsqueeze(0), ignore), only_present=only_present)
-                    for prob, lab in zip(probas, labels))
-    else:
-        loss = lovasz_softmax_flat(
-            *flatten_probas(probas, labels, ignore), only_present=only_present)
-    return loss
-
-
-def lovasz_softmax_flat(probas, labels, only_present=False):
-    """
-    Multi-class Lovasz-Softmax loss
-      probas: [P, C] Variable, class probabilities at each prediction (between 0 and 1)
-      labels: [P] Tensor, ground truth labels (between 0 and C - 1)
-      only_present: average only on classes present in ground truth
-    """
-    C = probas.size(1)
-    losses = []
-    for c in range(C):
-        fg = (labels == c).float()  # foreground for class c
-        if only_present and fg.sum() == 0:
-            continue
-        errors = (Variable(fg) - probas[:, c]).abs()
-        errors_sorted, perm = torch.sort(errors, 0, descending=True)
-        perm = perm.data
-        fg_sorted = fg[perm]
-        losses.append(
-            torch.dot(errors_sorted, Variable(lovasz_grad(fg_sorted))))
-    return mean(losses)
-
-
-def flatten_probas(probas, labels, ignore=None):
-    """
-    Flattens predictions in the batch
-    """
-    B, C, H, W = probas.size()
-    probas = probas.permute(0, 2, 3, 1).contiguous(
-    ).view(-1, C)  # B * H * W, C = P, C
-    labels = labels.view(-1)
-    if ignore is None:
-        return probas, labels
-    valid = (labels != ignore)
-    vprobas = probas[valid.nonzero().squeeze()]
-    vlabels = labels[valid]
-    return vprobas, vlabels
-
-
-def xloss(logits, labels, ignore=None):
-    """
-    Cross entropy loss
-    """
-    return F.cross_entropy(logits, Variable(labels), ignore_index=255)
 
 
 # --------------------------- HELPER FUNCTIONS ---------------------------
@@ -235,18 +101,12 @@ def mean(l, ignore_nan=False, empty=0):
 
     return acc / n
 
-import math
 
-import numpy as np
-
-import torch
-import torch.nn as nn
-from criterions.lovasz_losses import lovasz_hinge
 
 
 class SpatialEmbLoss(nn.Module):
 
-    def __init__(self, to_center=True, n_sigma=1, foreground_weight=1,):
+    def __init__(self, to_center=True, n_sigma=1, foreground_weight=1, img_size=(1024, 2048)):
         super().__init__()
 
         print('Created spatial emb loss function with: to_center: {}, n_sigma: {}, foreground_weight: {}'.format(
@@ -257,103 +117,58 @@ class SpatialEmbLoss(nn.Module):
         self.foreground_weight = foreground_weight
 
         # coordinate map
-        xm = torch.linspace(0, 2, 2048).view(
-            1, 1, -1).expand(1, 1024, 2048)
-        ym = torch.linspace(0, 1, 1024).view(
-            1, -1, 1).expand(1, 1024, 2048)
-        xym = torch.cat((xm, ym), 0)
-
+        n_rows, n_cols = img_size
+        cols = torch.linspace(0, 1, n_cols).view(
+            1, 1, -1).expand(1, n_rows, n_cols)
+        rows = torch.linspace(0, 1, n_rows).view(
+            1, -1, 1).expand(1, n_rows, n_cols)
+        xym = torch.cat((cols, rows), 0)
         self.register_buffer("xym", xym)
 
-    def forward(self, prediction, instances, labels, w_inst=1, w_var=10, w_seed=1, iou=False, iou_meter=None):
 
-        batch_size, height, width = prediction.size(
-            0), prediction.size(2), prediction.size(3)
+    def forward(self, features, masks, per_instance=True, w_inst=1, w_var=10, w_seed=1, iou=False, iou_meter=None):
+        masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
+        # features: B, 1, F, H*W
+        # masks: B, M, 1, H*W
 
-        xym_s = self.xym[:, 0:height, 0:width].contiguous()  # 2 x h x w
+        xym_s = self.xym[..., 0:H, 0:W].reshape(1, 1, 2, -1)  # 1, 1, 2, H*W 
+        spatial_emb = torch.tanh(features[:, :, 0:2]) + xym_s  # B, 1, 2, H*W
+        sigma = features[:, :, 2:2+self.n_sigma]  # B, 1, n_sigma, H*W
+        seed_map = torch.sigmoid(
+            features[:, :, 2+self.n_sigma:2+self.n_sigma + 1])  # B, 1, 1, H*W
 
-        loss = 0
+        if self.to_center:
+            centers = (xym_s * masks).sum(dim=3, keepdim=True) / \
+                (masks.sum(dim=3, keepdim=True) + 1e-6)  # B, M, 2, 1
+        else:
+            centers = (spatial_emb * masks).sum(dim=3, keepdim=True) / \
+                (masks.sum(dim=3, keepdim=True) + 1e-6)  # B, M, 2, 1
+        
+        # calculate sigma
+        s = (sigma * masks).sum(dim=3, keepdim=True) / \
+            (masks.sum(dim=3, keepdim=True) + 1e-6)  # B, M, n_sigma, 1
 
-        for b in range(0, batch_size):
+        var_loss = torch.mean(
+            torch.pow(sigma * masks - s.detach(), 2))
 
-            spatial_emb = torch.tanh(prediction[b, 0:2]) + xym_s  # 2 x h x w
-            sigma = prediction[b, 2:2+self.n_sigma]  # n_sigma x h x w
-            seed_map = torch.sigmoid(
-                prediction[b, 2+self.n_sigma:2+self.n_sigma + 1])  # 1 x h x w
+        s = torch.exp(s*10)
 
-            # loss accumulators
-            var_loss = 0
-            instance_loss = 0
-            seed_loss = 0
-            obj_count = 0
+        # calculate gaussian
+        dist = torch.exp(-1*torch.sum(
+            torch.pow(spatial_emb - centers, 2)*s, 2, keepdim=True))  # B, M, 1, H*W
 
-            instance = instances[b].unsqueeze(0)  # 1 x h x w
-            label = labels[b].unsqueeze(0)  # 1 x h x w
+        
+        # apply lovasz-hinge loss
+        logits, targets = (2*dist-1).reshape(B*M, H, W), masks.reshape(B*M, H, W)
+        instance_loss = lovasz_hinge(dist*2-1, masks, per_image=per_instance)
 
-            instance_ids = instance.unique()
-            instance_ids = instance_ids[instance_ids != 0]
+        # seed loss
+        seed_loss = self.foreground_weight * (
+            torch.pow((seed_map-dist.detach()) * masks, 2)).mean(dim=3, keepdim=True)  # B, M, 1, 1
 
-            # regress bg to zero
-            bg_mask = label == 0
-            if bg_mask.sum() > 0:
-                seed_loss += torch.sum(
-                    torch.pow(seed_map[bg_mask] - 0, 2))
-
-            for id in instance_ids:
-
-                in_mask = instance.eq(id)   # 1 x h x w
-
-                # calculate center of attraction
-                if self.to_center:
-                    xy_in = xym_s[in_mask.expand_as(xym_s)].view(2, -1)
-                    center = xy_in.mean(1).view(2, 1, 1)  # 2 x 1 x 1
-                else:
-                    center = spatial_emb[in_mask.expand_as(spatial_emb)].view(
-                        2, -1).mean(1).view(2, 1, 1)  # 2 x 1 x 1
-
-                # calculate sigma
-                sigma_in = sigma[in_mask.expand_as(
-                    sigma)].view(self.n_sigma, -1)
-
-                s = sigma_in.mean(1).view(
-                    self.n_sigma, 1, 1)   # n_sigma x 1 x 1
-
-                # calculate var loss before exp
-                var_loss = var_loss + \
-                    torch.mean(
-                        torch.pow(sigma_in - s[..., 0].detach(), 2))
-
-                s = torch.exp(s*10)
-
-                # calculate gaussian
-                dist = torch.exp(-1*torch.sum(
-                    torch.pow(spatial_emb - center, 2)*s, 0, keepdim=True))
-
-                # apply lovasz-hinge loss
-                instance_loss = instance_loss + \
-                    lovasz_hinge(dist*2-1, in_mask)
-
-                # seed loss
-                seed_loss += self.foreground_weight * torch.sum(
-                    torch.pow(seed_map[in_mask] - dist[in_mask].detach(), 2))
-
-                # calculate instance iou
-                if iou:
-                    iou_meter.update(calculate_iou(dist > 0.5, in_mask))
-
-                obj_count += 1
-
-            if obj_count > 0:
-                instance_loss /= obj_count
-                var_loss /= obj_count
-
-            seed_loss = seed_loss / (height * width)
-
-            loss += w_inst * instance_loss + w_var * var_loss + w_seed * seed_loss
-
-        loss = loss / (b+1)
-
-        return loss + prediction.sum()*0
+        loss = w_inst * instance_loss + w_var * var_loss + w_seed * \
+            seed_loss.mean()
+        return loss 
 
 
 def calculate_iou(pred, label):
