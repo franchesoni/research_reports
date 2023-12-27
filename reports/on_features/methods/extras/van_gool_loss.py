@@ -125,7 +125,7 @@ class SpatialEmbLoss(nn.Module):
         n_rows, n_cols = img_size
         cols = torch.linspace(0, 1, n_cols).view(1, 1, -1).expand(1, n_rows, n_cols)
         rows = torch.linspace(0, 1, n_rows).view(1, -1, 1).expand(1, n_rows, n_cols)
-        xym = torch.cat((cols, rows), 0)
+        xym = torch.cat((rows, cols), 0)
         xym.requires_grad = False
         self.register_buffer("xym", xym)
 
@@ -168,11 +168,10 @@ class SpatialEmbLoss(nn.Module):
 
         var_loss = torch.mean(torch.pow(sigma * masks - s.detach(), 2))
 
-        if print_intermediate:
-
+        if print_intermediate and exp_s:
             print("s before exp", torch.norm(s))
 
-        # s = torch.exp(s * 10) if exp_s else s
+        s = torch.exp(s * 10) if exp_s else s
 
         # calculate gaussian
         dist = torch.exp(
@@ -182,8 +181,8 @@ class SpatialEmbLoss(nn.Module):
         # apply lovasz-hinge loss
         logits, targets = (2 * dist - 1).reshape(B * M, H, W), masks.reshape(
             B * M, H, W
-        )
-        instance_loss = lovasz_hinge(dist * 2 - 1, masks * 1, per_image=per_instance)
+        )*1
+        instance_loss = lovasz_hinge(logits, targets, per_image=per_instance)
 
         # seed loss
         seed_loss = self.foreground_weight * (
@@ -206,7 +205,7 @@ class SpatialEmbLoss(nn.Module):
             print("instance_loss", torch.norm(instance_loss))
             print("seed_loss", torch.norm(seed_loss))
             print("var_loss", torch.norm(var_loss))
-            print("iou loss", calculate_iou(dist > 0.5, masks))
+            print("iou", calculate_iou(dist > 0.5, masks))
             print("total loss", loss)
             breakpoint()
 
@@ -224,3 +223,25 @@ def calculate_iou(pred, label):
     else:
         iou = intersection.item() / union.item()
         return iou
+
+def save(tensor, name):
+    from PIL import Image
+
+    def minmaxnorm(x):
+        return (x - x.min()) / (x.max() - x.min())
+    
+    tensor = minmaxnorm(tensor)
+    tensor = (tensor * 255).to(torch.uint8)
+    tensor = tensor.squeeze()  # C, H*W
+    tensor = tensor.reshape(-1, 224, 224)  # C, H, W
+    if tensor.shape[0] == 1:
+        tensor = tensor[0]
+    elif tensor.shape[0] == 2:
+        tensor = torch.stack([tensor[0], torch.zeros_like(tensor[0]), tensor[1]], dim=0)
+        tensor = tensor.permute(1, 2, 0)
+    elif tensor.shape[0] >= 3:
+        tensor = tensor[:3]
+        tensor = tensor.permute(1, 2, 0)
+    tensor = tensor.cpu().numpy()
+    Image.fromarray(tensor).save(name)
+
