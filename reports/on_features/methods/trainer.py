@@ -44,7 +44,7 @@ def save_tensor_as_image(dstfile, tensor, global_step):
     tensor = tensor * 255.0
     tensor = tensor.clip(0, 255).astype(np.uint8)
     tensor = tensor if tensor.shape[2] > 1 else tensor[..., 0]
-    image = Image.fromarray(tensor)
+    image = Image.fromarray(tensor[..., :3])
     dstfile = Path(dstfile)
     dstfile = (dstfile.parent / (dstfile.stem + "_" + str(global_step))).with_suffix(
         ".jpg"
