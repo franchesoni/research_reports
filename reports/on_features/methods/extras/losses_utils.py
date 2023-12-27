@@ -1,5 +1,10 @@
 import torch
 
+def symlog(x):
+    return torch.sign(x) * torch.log(torch.abs(x) + 1)
+
+
+
 def preprocess_masks_features(masks, features):
     # Get shapes right
     B, M, H, W = masks.shape

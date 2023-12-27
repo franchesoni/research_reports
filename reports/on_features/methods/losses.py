@@ -1,12 +1,10 @@
 import torch
 from functools import partial
-from extras.losses_utils import preprocess_masks_features, get_row_col
+from extras.losses_utils import preprocess_masks_features, get_row_col, symlog
 from extras.van_gool_loss import SpatialEmbLoss
 from extras.sing import SING
 
 
-def symlog(x):
-    return torch.sign(x) * torch.log(torch.abs(x) + 1)
 
 
 emdloss = SpatialEmbLoss(img_size=(224,224))
@@ -241,7 +239,7 @@ def try_loss(
     )
 
     for i in range(n_iter):
-        loss = loss_fn(output, masks, **loss_kwargs)
+        loss = loss_fn(output, masks, **loss_kwargs | {'print_intermediate': i % (n_iter // 4) == 0})
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
