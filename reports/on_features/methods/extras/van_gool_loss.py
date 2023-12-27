@@ -123,10 +123,11 @@ class SpatialEmbLoss(nn.Module):
         rows = torch.linspace(0, 1, n_rows).view(
             1, -1, 1).expand(1, n_rows, n_cols)
         xym = torch.cat((cols, rows), 0)
+        xym.requires_grad = False
         self.register_buffer("xym", xym)
 
 
-    def forward(self, features, masks, per_instance=True, w_inst=1, w_var=10, w_seed=1, iou=False, iou_meter=None):
+    def forward(self, features, masks, per_instance=True, w_inst=1, w_var=10, w_seed=1, print_iou=False):
         masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
         # features: B, 1, F, H*W
         # masks: B, M, 1, H*W
@@ -160,7 +161,7 @@ class SpatialEmbLoss(nn.Module):
         
         # apply lovasz-hinge loss
         logits, targets = (2*dist-1).reshape(B*M, H, W), masks.reshape(B*M, H, W)
-        instance_loss = lovasz_hinge(dist*2-1, masks, per_image=per_instance)
+        instance_loss = lovasz_hinge(dist*2-1, masks*1, per_image=per_instance)
 
         # seed loss
         seed_loss = self.foreground_weight * (
@@ -168,6 +169,10 @@ class SpatialEmbLoss(nn.Module):
 
         loss = w_inst * instance_loss + w_var * var_loss + w_seed * \
             seed_loss.mean()
+        
+        if print_iou:
+            print(calculate_iou(dist > 0.5, masks))
+
         return loss 
 
 
