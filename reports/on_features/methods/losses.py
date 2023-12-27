@@ -1,12 +1,15 @@
 import torch
 from functools import partial
 from extras.losses_utils import preprocess_masks_features, get_row_col
+from extras.van_gool_loss import SpatialEmbLoss
+from extras.sing import SING
 
 
 def symlog(x):
     return torch.sign(x) * torch.log(torch.abs(x) + 1)
 
 
+emdloss = SpatialEmbLoss(img_size=(224,224))
 
 
 
@@ -297,6 +300,7 @@ losses_dict = {
     "simplest": simplest_loss,
     "hinge": simplest_hinge,
     "offset": offset_to_center,
+    "vangool": emdloss,
     "global_var": global_variance,
 }
 
@@ -310,6 +314,8 @@ def try_loss(
     out_channels=3,
     loss_kwargs={},
     clean=False,
+    per_channel_optim=False,
+    sing=False,
 ):
     assert type(loss_kwargs) == dict, "loss_kwargs must be a dict, use quotes"
     from pathlib import Path
@@ -352,8 +358,14 @@ def try_loss(
     save_tensor_as_image(dstdir / "image.jpg", image[0], 0)
 
     # do gradient ascent from tensor
-    output = torch.randn(size=(1, out_channels, 224, 224), requires_grad=True)
-    optimizer = torch.optim.Adam([output], lr=1)
+    if per_channel_optim:
+        channels_as_params = [torch.randn(size=(1, 1, 224, 224), requires_grad=True) for c in range(out_channels)]
+        params_list = [{"params": channel} for channel in channels_as_params]
+        optimizer = SING(params_list, lr=1) if sing else torch.optim.AdamW(params_list, lr=1)
+        output = torch.cat(channels_as_params, dim=1)
+    else:
+        output = torch.randn(size=(1, out_channels, 224, 224), requires_grad=True)
+        optimizer = torch.optim.Adam([output], lr=1)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, patience=n_iter // 10, verbose=True
     )
