@@ -5,8 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 import torch.nn as nn
 from itertools import filterfalse as ifilterfalse
-from extras.losses_utils import preprocess_masks_features
-
+from extras.losses_utils import preprocess_masks_features, symlog
 
 def lovasz_grad(gt_sorted):
     """
@@ -140,14 +139,14 @@ class SpatialEmbLoss(nn.Module):
         w_seed=1,
         print_iou=False,
         exp_s=True,
-        print_intermediate=False,
+        print_intermediate=True,
     ):
         masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
         # features: B, 1, F, H*W
         # masks: B, M, 1, H*W
 
         xym_s = self.xym[..., 0:H, 0:W].reshape(1, 1, 2, -1)  # 1, 1, 2, H*W
-        spatial_emb = torch.tanh(features[:, :, 0:2]) + xym_s  # B, 1, 2, H*W
+        spatial_emb = symlog(features[:, :, 0:2]) + xym_s  # B, 1, 2, H*W
         sigma = features[:, :, 2 : 2 + self.n_sigma]  # B, 1, n_sigma, H*W
         seed_map = torch.sigmoid(
             features[:, :, 2 + self.n_sigma : 2 + self.n_sigma + 1]
@@ -170,11 +169,10 @@ class SpatialEmbLoss(nn.Module):
         var_loss = torch.mean(torch.pow(sigma * masks - s.detach(), 2))
 
         if print_intermediate:
-            print("spatial_emb", torch.norm(spatial_emb))
-            print("seed map", torch.norm(seed_map))
+
             print("s before exp", torch.norm(s))
 
-        s = torch.exp(s * 10) if exp_s else s
+        # s = torch.exp(s * 10) if exp_s else s
 
         # calculate gaussian
         dist = torch.exp(
@@ -194,14 +192,23 @@ class SpatialEmbLoss(nn.Module):
             dim=3, keepdim=True
         )  # B, M, 1, 1
 
+
+
+        loss = w_inst * instance_loss + w_var * var_loss + w_seed * seed_loss.mean()
+
         if print_intermediate:
+            print("spatial_emb", torch.norm(spatial_emb))
+            print("seed map", torch.norm(seed_map))
+            print('max spatial', torch.max(spatial_emb))
+            print('max seed', torch.max(seed_map))
             print("s after exp", torch.norm(s))
             print("dist", torch.norm(dist))
             print("instance_loss", torch.norm(instance_loss))
             print("seed_loss", torch.norm(seed_loss))
             print("var_loss", torch.norm(var_loss))
-
-        loss = w_inst * instance_loss + w_var * var_loss + w_seed * seed_loss.mean()
+            print("iou loss", calculate_iou(dist > 0.5, masks))
+            print("total loss", loss)
+            breakpoint()
 
         if print_iou:
             print(calculate_iou(dist > 0.5, masks))
