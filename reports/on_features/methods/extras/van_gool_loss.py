@@ -139,7 +139,7 @@ class SpatialEmbLoss(nn.Module):
         w_seed=0.01,
         print_iou=False,
         exp_s=True,
-        print_intermediate=True,
+        print_intermediate=False,
     ):
         masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
         # features: B, 1, F, H*W
