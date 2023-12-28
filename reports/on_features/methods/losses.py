@@ -190,6 +190,7 @@ def try_loss(
     from pathlib import Path
     import json
     from extras.utils import get_current_git_commit
+    pass_input = loss_name == 'ours'
 
     if runname is None:
         from haikunator import Haikunator
@@ -243,7 +244,10 @@ def try_loss(
     )
 
     for i in range(n_iter):
-        loss = loss_fn(output, masks, **loss_kwargs | {'print_intermediate': i % (n_iter // 4) == 0})
+        if pass_input:
+            loss = loss_fn(output, masks, image, **loss_kwargs | {'print_intermediate': i % (n_iter // 4) == 0})
+        else:
+            loss = loss_fn(output, masks, **loss_kwargs | {'print_intermediate': i % (n_iter // 4) == 0})
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
