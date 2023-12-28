@@ -5,6 +5,8 @@ import json
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 from PIL import Image
+from extras.utils import get_current_git_commit, clean_dir
+
 
 from losses import losses_dict
 from extras.sing import SING
@@ -167,6 +169,7 @@ class Trainer:
         device=None,
         comment="",
         extra_hparams={},
+        clean=False,
     ):
         # training variables
         self.max_epochs = max_epochs
@@ -176,6 +179,8 @@ class Trainer:
         self.best_val_loss = float("inf")
         self.global_step = 0
         # logging variables
+        if clean:
+            clean_dir('runs')
         self.hparams = extra_hparams
         self.logger = SummaryWriter(comment=comment)
         self.img_dstdir = Path(self.logger.get_logdir()) / "images"
@@ -201,6 +206,7 @@ class Trainer:
             "max_epochs": self.max_epochs,
             "fast_dev_run": self.fast_dev_run,
             "val_check_interval": self.val_check_interval,
+            "git_commit": get_current_git_commit(),
         } | self.hparams
         print("hparams:", hparams)
         with open(os.path.join(self.logger.log_dir, "hparams.txt"), "w") as f:
@@ -285,6 +291,8 @@ class Trainer:
 
         # log hparams
         self.logger.add_hparams(hparams, {})
+        with open(os.path.join(self.logger.log_dir, "done.txt"), "w") as f:
+            f.write("done")
 
 
     def overfit(self, model, train_batch, val_batch, compile=False):
@@ -326,7 +334,6 @@ class Trainer:
 
         # log hparams
         self.logger.add_hparams(hparams, {})
-
 
 
     def _validate(self, model: TrainableModule, val_data):

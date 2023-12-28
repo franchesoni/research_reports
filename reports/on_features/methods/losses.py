@@ -4,6 +4,7 @@ from extras.losses_utils import preprocess_masks_features, get_row_col, symlog
 from extras.van_gool_loss import SpatialEmbLoss, calculate_iou, lovasz_hinge
 from extras.sing import SING
 from network import get_network
+from extras.utils import clean_dir
 
 
 
@@ -261,7 +262,7 @@ def try_loss(
 
     runname = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{runname}"
     if clean:
-        clean_ascent()
+        clean_dir('ascent')
 
     dstdir = Path("ascent") / runname
     dstdir.mkdir(exist_ok=False, parents=True)
@@ -333,17 +334,6 @@ def try_loss(
     with open(dstdir / "done.txt", "w") as f:
         f.write("Done")
 
-
-def clean_ascent():
-    import shutil
-    import datetime
-    from pathlib import Path
-
-    dstdir = Path("ascent")
-    for f in dstdir.iterdir():
-        # if the directory doesn't have a done.txt file remove it
-        if f.is_dir() and not (f / "done.txt").exists():
-            shutil.rmtree(f)
 
 
 if __name__ == "__main__":

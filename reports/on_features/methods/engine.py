@@ -9,7 +9,7 @@ import torch
 print("importing internal...")
 from data import pad_resized_img, get_train_val_ds, custom_collate
 from losses import losses_dict
-from trainer import Trainer, TrainableModule, Overfitter
+from trainer import Trainer, TrainableModule
 from network import get_network
 
 print("firing...")
@@ -49,6 +49,7 @@ def train(
     gpu_number=0,
     model='vitregs',
     overfit=False,
+    clean=False,
 ):
     print("getting model")
     net = get_network(output_channels=output_channels, dummy=dummy_decoder, model=model)
@@ -119,6 +120,7 @@ def train(
         device=f"cuda:{gpu_number}" if torch.cuda.is_available() else "cpu",
         comment=comment,
         extra_hparams=extra_hparams,
+        clean=clean,
     )
     print("training")
     if overfit:
@@ -159,4 +161,4 @@ if __name__ == "__main__":
     print("handling args")
     from fire import Fire
 
-    Fire({"train": train, "inference": inference, "overfit": train})
+    Fire({"train": train, "inference": inference})
