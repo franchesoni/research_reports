@@ -96,7 +96,11 @@ class TrainableModule(torch.nn.Module):
     ):
         x, y = batch
         y_hat = self.model(x)
-        loss = self.loss_fn(y_hat, y)
+        # check if 'image' is an argument name in self.loss_fn
+        if hasattr(self.loss_fn, 'forward') and "image" in self.loss_fn.forward.__code__.co_varnames:
+            loss = self.loss_fn(y_hat, y, image=x)
+        else:
+            loss = self.loss_fn(y_hat, y)
         if return_input_output_for_logging:
             return loss, x, y_hat
         return loss, None, None
@@ -112,13 +116,21 @@ class TrainableModule(torch.nn.Module):
         # step
         x, y = batch
         y_hat = self.model(x)
-        loss = self.loss_fn(y_hat, y)
+        # check if 'image' is an argument name in self.loss_fn
+        if hasattr(self.loss_fn, 'forward') and "image" in self.loss_fn.forward.__code__.co_varnames:
+            loss = self.loss_fn(y_hat, y, image=x)
+        else:
+            loss = self.loss_fn(y_hat, y)
 
         # [optional] compute other losses
         many_losses = {}
         if return_many_losses:
             for loss_name, loss_fn in losses_dict.items():
-                many_losses[loss_name] = loss_fn(y_hat, y)
+                # check if 'image' is an argument name in self.loss_fn
+                if hasattr(loss_fn, 'forward') and "image" in loss_fn.forward.__code__.co_varnames:
+                    many_losses[loss_name] = loss_fn(y_hat, y, image=x)
+                else:
+                    many_losses[loss_name] = loss_fn(y_hat, y)
 
         # [optional] return input and output for logging
         if return_input_output_for_logging:
