@@ -175,7 +175,7 @@ class OursLoss(torch.nn.Module):
         self.register_buffer("xym", xym)
 
     def forward(self, features, masks, image, per_instance=True,
-            w_inst=1, w_var=0.01, w_seed=0.01, print_iou=False):
+            w_inst=1, w_var=0.01, w_seed=0.01, ret_iou=True):
         '''features is B, F, H, W where F = 3 (color offset) + 2 (pos offset) + 1 (sigma) + 1 (seed) + N (other variables)'''
         masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
         assert F >= 7, "features must have at least 7 channels (r-g-b-x-y-sigma-seed)"
@@ -213,10 +213,9 @@ class OursLoss(torch.nn.Module):
 
         loss = w_inst * loss_instance + w_var * loss_sigma_var + w_seed * loss_seed.mean()
 
-        if print_iou:
-            print('iou:', calculate_iou(score > 0.5, masks))
+        iou = float(calculate_iou(score > 0.5, masks)) if ret_iou else None
 
-        return loss
+        return loss, iou
 
 
 
