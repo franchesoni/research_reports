@@ -185,7 +185,7 @@ class OursLoss(torch.nn.Module):
         Bi, C, Hi, Wi = image.shape
         assert Bi == B and Hi == H and Wi == W, "image must have same batch size and spatial dimensions as features"
         assert C == 3, "image must have 3 channels (r-g-b)"
-        xym_s = self.xym[..., :H, :W].reshape(1, 2, H, W)  # 1, 1, 2, H, W
+        xym_s = self.xym[..., :H, :W].reshape(1, 2, H, W).expand(B, 2, H, W)  # B, 2, H, W
         base = torch.cat([image, xym_s], dim=1)  # B, 5, H, W
         base = base.reshape(B, 1, 5, H*W)  # B, 1, 5, H*W
         # get offsets
