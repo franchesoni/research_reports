@@ -30,11 +30,14 @@ def save_tensor_as_image(tensor, dstfile, global_step):
     )
     save(tensor, str(dstfile))
 
-def save(tensor, name, channel_offset=0):
+def minmaxnorm(x):
+    return (x - x.min()) / (x.max() - x.min())
 
-    def minmaxnorm(x):
-        return (x - x.min()) / (x.max() - x.min())
-    
+def save(tensor, name, channel_offset=0):
+    tensor = to_img(tensor, channel_offset=channel_offset)
+    Image.fromarray(tensor).save(name)
+
+def to_img(tensor, channel_offset=0):
     tensor = minmaxnorm(tensor)
     tensor = (tensor * 255).to(torch.uint8)
     tensor = tensor.squeeze()  # C, H*W
@@ -48,5 +51,6 @@ def save(tensor, name, channel_offset=0):
         tensor = tensor[channel_offset:channel_offset+3]
         tensor = tensor.permute(1, 2, 0)
     tensor = tensor.cpu().numpy()
-    Image.fromarray(tensor).save(name)
+    return tensor
+
 
