@@ -185,8 +185,8 @@ class OursLoss(torch.nn.Module):
         assert Bi == B and Hi == H and Wi == W, "image must have same batch size and spatial dimensions as features"
         assert C == 3, "image must have 3 channels (r-g-b)"
         xym_s = self.xym[..., :H, :W].reshape(1, 2, H, W)  # 1, 1, 2, H, W
-        base = torch.cat([image, xym_s, torch.zeros(1, (F-5), H, W)], dim=1)  # B, F, H, W
-        base = base.reshape(B, 1, F, H*W)  # B, F, H*W
+        base = torch.cat([image, xym_s], dim=1)  # B, 5, H, W
+        base = base.reshape(B, 1, 5, H*W)  # B, 1, 5, H*W
         # get offsets
         offsets = symlog(features[:, :, :5])
         rgbxy2 = base + offsets  # B, 1, 5, H*W
@@ -206,7 +206,7 @@ class OursLoss(torch.nn.Module):
         )
 
         logits, targets = (2 * score - 1).reshape(B*M, H, W), masks.reshape(B*M, H, W)*1
-        loss_instance = lovasz_hinge(logits, targets, per_iamge=per_instance)
+        loss_instance = lovasz_hinge(logits, targets, per_image=per_instance)
 
         loss_seed = torch.pow((seed_map - score.detach()) * masks, 2).mean(dim=3, keepdim=True)  # B, M, 1, 1
 
@@ -304,9 +304,9 @@ def try_loss(
 
     for i in range(n_iter):
         if pass_input:
-            loss = loss_fn(output, masks, image, **loss_kwargs | {'print_intermediate': i % (n_iter // 4) == 0})
+            loss = loss_fn(output, masks, image, **loss_kwargs | {'print_iou': i % (n_iter // 10) == 0})
         else:
-            loss = loss_fn(output, masks, **loss_kwargs | {'print_intermediate': i % (n_iter // 4) == 0})
+            loss = loss_fn(output, masks, **loss_kwargs)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -317,6 +317,7 @@ def try_loss(
             save_tensor_as_image(dstdir / "ascent.jpg", output[0], i)
 
     print("Done")
+    breakpoint()
     with open(dstdir / "done.txt", "w") as f:
         f.write("Done")
 
