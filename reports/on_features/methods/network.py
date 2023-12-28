@@ -96,7 +96,7 @@ def get_network(output_channels=3, dummy=False, model='effvitb3'):
         )
         encoder = ViT_small_with_registers_forward(bbone)
         pixelshuffle_scale = 14
-        in_channel = 348
+        in_channel = 384
     elif model == 'effvitb3':
         bbone = timm.create_model(
             "efficientvit_b3.r224_in1k", pretrained=False, num_classes=0

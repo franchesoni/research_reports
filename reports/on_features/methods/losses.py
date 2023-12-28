@@ -277,6 +277,7 @@ def try_loss(
         "per_channel_optim": per_channel_optim,
         "sing": sing,
         "lr": lr,
+        "use_nn": use_nn,
     }
     with open(dstdir / "hparams.json", "w") as f:
         json.dump(hparams, f, indent=4)
@@ -306,9 +307,9 @@ def try_loss(
         )
     else:
         model = get_network(output_channels=7, dummy=True, model='vitregs')
-        optim = torch.optim.AdamW(model.parameters(), lr=lr)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optim, patience=n_iter // 4, verbose=True
+            optimizer, patience=n_iter // 4, verbose=True
         )
 
     for i in range(n_iter):
