@@ -193,8 +193,10 @@ class OursLoss(torch.nn.Module):
         rgbxy2 = base + offsets  # B, 1, 5, H*W
         sigma = features[:,:,5:6]  # B, 1, 1, H*W
         seed_map = torch.sigmoid(features[:,:,6:7])  # B, 1, 1, H*W
+        abcs = symlog(features[:,:,7:])  # B, 1, N, H*W
+        embeddings = torch.cat([rgbxy2, abcs], dim=2)  # B, 1, 5+N, H*W
 
-        centers = (rgbxy2 * masks).sum(dim=3, keepdim=True) / (masks.sum(dim=3, keepdim=True) + 1e-6)  # B, M, 5, 1
+        centers = (embeddings * masks).sum(dim=3, keepdim=True) / (masks.sum(dim=3, keepdim=True) + 1e-6)  # B, M, 5, 1
         mean_sigmas = (sigma * masks).sum(dim=3, keepdim=True) / (masks.sum(dim=3, keepdim=True) + 1e-6)  # B, M, 1, 1
 
         loss_sigma_var = torch.pow(sigma * masks - mean_sigmas.detach(), 2).mean()
@@ -202,7 +204,7 @@ class OursLoss(torch.nn.Module):
         # calculate gaussian
         score = torch.exp(
             -torch.sum(
-                torch.pow(rgbxy2 - centers, 2) * mean_sigmas,  # B, M, 5, H*W
+                torch.pow(embeddings - centers, 2) * mean_sigmas,  # B, M, 5, H*W
                        dim=2, keepdim=True)  # B, M, 1, H*W
         )
 
