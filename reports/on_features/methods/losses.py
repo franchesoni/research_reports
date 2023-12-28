@@ -1,7 +1,7 @@
 import torch
 from functools import partial
 from extras.losses_utils import preprocess_masks_features, get_row_col, symlog
-from extras.van_gool_loss import SpatialEmbLoss
+from extras.van_gool_loss import SpatialEmbLoss, calculate_iou, lovasz_hinge
 from extras.sing import SING
 
 
@@ -162,7 +162,65 @@ def global_variance(features, masks):
     ).mean()  # negative variance as loss increases variance hence diversity
     return loss
 
+class OursLoss(torch.nn.Module):
+    def __init__(self, img_size=(224,224)):
+        super().__init__()
+        # coordinate map
+        n_rows, n_cols = img_size
+        rows = torch.linspace(0, 1, n_rows).view(1, -1, 1).expand(1, n_rows, n_cols)
+        cols = torch.linspace(0, 1, n_cols).view(1, 1, -1).expand(1, n_rows, n_cols)
+        xym = torch.cat((rows, cols), 0)
+        xym.requires_grad = False
+        self.register_buffer("xym", xym)
 
+    def forward(self, features, masks, image, per_instance=True,
+            w_inst=1, w_var=0.01, w_seed=0.01, print_iou=False):
+        '''features is B, F, H, W where F = 3 (color offset) + 2 (pos offset) + 1 (sigma) + 1 (seed) + N (other variables)'''
+        masks, features, M, B, H, W, F = preprocess_masks_features(masks, features)
+        assert F >= 7, "features must have at least 7 channels (r-g-b-x-y-sigma-seed)"
+        # features: B, 1, F, H*W
+        # masks: B, M, 1, H*W
+        # image: B, C, H, W
+        Bi, C, Hi, Wi = image.shape
+        assert Bi == B and Hi == H and Wi == W, "image must have same batch size and spatial dimensions as features"
+        assert C == 3, "image must have 3 channels (r-g-b)"
+        xym_s = self.xym[..., :H, :W].reshape(1, 2, H, W)  # 1, 1, 2, H, W
+        base = torch.cat([image, xym_s, torch.zeros(1, (F-5), H, W)], dim=1)  # B, F, H, W
+        base = base.reshape(B, 1, F, H*W)  # B, F, H*W
+        # get offsets
+        offsets = symlog(features[:, :, :5])
+        rgbxy2 = base + offsets  # B, 1, 5, H*W
+        sigma = features[:,:,5:6]  # B, 1, 1, H*W
+        seed_map = torch.sigmoid(features[:,:,6:7])  # B, 1, 1, H*W
+
+        centers = (rgbxy2 * masks).sum(dim=3, keepdim=True) / (masks.sum(dim=3, keepdim=True) + 1e-6)  # B, M, 5, 1
+        mean_sigmas = (sigma * masks).sum(dim=3, keepdim=True) / (masks.sum(dim=3, keepdim=True) + 1e-6)  # B, M, 1, 1
+
+        loss_sigma_var = torch.pow(sigma * masks - mean_sigmas.detach(), 2).mean()
+
+        # calculate gaussian
+        score = torch.exp(
+            -torch.sum(
+                torch.pow(rgbxy2 - centers, 2) * mean_sigmas,  # B, M, 5, H*W
+                       dim=2, keepdim=True)  # B, M, 1, H*W
+        )
+
+        logits, targets = (2 * score - 1).reshape(B*M, H, W), masks.reshape(B*M, H, W)*1
+        loss_instance = lovasz_hinge(logits, targets, per_iamge=per_instance)
+
+        loss_seed = torch.pow((seed_map - score.detach()) * masks, 2).mean(dim=3, keepdim=True)  # B, M, 1, 1
+
+        loss = w_inst * loss_instance + w_var * loss_sigma_var + w_seed * loss_seed.mean()
+
+        if print_iou:
+            print('iou:', calculate_iou(score > 0.5, masks))
+
+        return loss
+
+
+
+        
+        
 
 losses_dict = {
     "simplest": simplest_loss,
@@ -170,6 +228,7 @@ losses_dict = {
     "offset": offset_to_center,
     "vangool": emdloss,
     "global_var": global_variance,
+    'ours': OursLoss(),
 }
 
 
