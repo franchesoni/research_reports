@@ -184,6 +184,7 @@ def try_loss(
     clean=False,
     per_channel_optim=False,
     sing=False,
+    lr=1,
 ):
     assert type(loss_kwargs) == dict, "loss_kwargs must be a dict, use quotes"
     from pathlib import Path
@@ -211,6 +212,9 @@ def try_loss(
         "out_channels": out_channels,
         "loss_kwargs": loss_kwargs,
         "git_commit": get_current_git_commit(),
+        "per_channel_optim": per_channel_optim,
+        "sing": sing,
+        "lr": lr,
     }
     with open(dstdir / "hparams.json", "w") as f:
         json.dump(hparams, f, indent=4)
@@ -229,11 +233,11 @@ def try_loss(
     if per_channel_optim:
         channels_as_params = [torch.randn(size=(1, 1, 224, 224), requires_grad=True) for c in range(out_channels)]
         params_list = [{"params": channel} for channel in channels_as_params]
-        optimizer = SING(params_list, lr=1) if sing else torch.optim.AdamW(params_list, lr=1)
+        optimizer = SING(params_list, lr=lr) if sing else torch.optim.AdamW(params_list, lr=lr)
         output = torch.cat(channels_as_params, dim=1)
     else:
         output = torch.randn(size=(1, out_channels, 224, 224), requires_grad=True)
-        optimizer = torch.optim.Adam([output], lr=1)
+        optimizer = torch.optim.Adam([output], lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, patience=n_iter // 2, verbose=True
     )
