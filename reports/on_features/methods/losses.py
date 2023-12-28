@@ -7,7 +7,7 @@ from extras.sing import SING
 
 
 
-emdloss = SpatialEmbLoss(img_size=(224,224))
+emdloss = SpatialEmbLoss(to_center=False, img_size=(224,224))
 
 
 
