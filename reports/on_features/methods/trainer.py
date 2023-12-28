@@ -88,7 +88,7 @@ class TrainableModule(torch.nn.Module):
         y_hat = self.model(x)
         # check if 'image' is an argument name in self.loss_fn
         if hasattr(self.loss_fn, 'forward') and "image" in self.loss_fn.forward.__code__.co_varnames:
-            loss = self.loss_fn(y_hat, y, image=x)
+            loss = self.loss_fn(y_hat, y, image=x, print_iou=return_input_output_for_logging)
         else:
             loss = self.loss_fn(y_hat, y)
         if return_input_output_for_logging:
@@ -108,7 +108,7 @@ class TrainableModule(torch.nn.Module):
         y_hat = self.model(x)
         # check if 'image' is an argument name in self.loss_fn
         if hasattr(self.loss_fn, 'forward') and "image" in self.loss_fn.forward.__code__.co_varnames:
-            loss = self.loss_fn(y_hat, y, image=x)
+            loss = self.loss_fn(y_hat, y, image=x, print_iou=True)
         else:
             loss = self.loss_fn(y_hat, y)
 
