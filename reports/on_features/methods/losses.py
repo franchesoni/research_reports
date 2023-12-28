@@ -3,6 +3,7 @@ from functools import partial
 from extras.losses_utils import preprocess_masks_features, get_row_col, symlog
 from extras.van_gool_loss import SpatialEmbLoss, calculate_iou, lovasz_hinge
 from extras.sing import SING
+from network import get_network
 
 
 
@@ -244,6 +245,7 @@ def try_loss(
     per_channel_optim=False,
     sing=False,
     lr=1,
+    use_nn=False,
 ):
     assert type(loss_kwargs) == dict, "loss_kwargs must be a dict, use quotes"
     from pathlib import Path
@@ -289,20 +291,29 @@ def try_loss(
     image, masks = train_batch
     save_tensor_as_image(dstdir / "image.jpg", image[0], 0)
 
-    # do gradient ascent from tensor
-    if per_channel_optim:
-        channels_as_params = [torch.randn(size=(1, 1, 224, 224), requires_grad=True) for c in range(out_channels)]
-        params_list = [{"params": channel} for channel in channels_as_params]
-        optimizer = SING(params_list, lr=lr) if sing else torch.optim.AdamW(params_list, lr=lr)
-        output = torch.cat(channels_as_params, dim=1)
+    if not use_nn:
+        # do gradient ascent from tensor
+        if per_channel_optim:
+            channels_as_params = [torch.randn(size=(1, 1, 224, 224), requires_grad=True) for c in range(out_channels)]
+            params_list = [{"params": channel} for channel in channels_as_params]
+            optimizer = SING(params_list, lr=lr) if sing else torch.optim.AdamW(params_list, lr=lr)
+            output = torch.cat(channels_as_params, dim=1)
+        else:
+            output = torch.randn(size=(1, out_channels, 224, 224), requires_grad=True)
+            optimizer = torch.optim.Adam([output], lr=lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, patience=n_iter // 4, verbose=True
+        )
     else:
-        output = torch.randn(size=(1, out_channels, 224, 224), requires_grad=True)
-        optimizer = torch.optim.Adam([output], lr=lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, patience=n_iter // 2, verbose=True
-    )
+        model = get_network(output_channels=7, dummy=True, model='vitregs')
+        optim = torch.optim.AdamW(model.parameters(), lr=lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optim, patience=n_iter // 4, verbose=True
+        )
 
     for i in range(n_iter):
+        if use_nn:
+            output = model(image)
         if pass_input:
             loss = loss_fn(output, masks, image, **loss_kwargs | {'print_iou': i % (n_iter // 10) == 0})
         else:
