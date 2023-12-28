@@ -23,11 +23,11 @@ def seed_everything(seed=0):
     torch.cuda.manual_seed(seed)
 
 
-def load_from_ckpt(trainable_module, ckpt_path):
+def load_from_ckpt(trainable_module, ckpt_path, strict=True):
     if ckpt_path and Path(ckpt_path).exists():
         ckpt = torch.load(ckpt_path, map_location="cpu")
         ckpt = ckpt["state_dict"] if "state_dict" in ckpt else ckpt
-        trainable_module.load_state_dict(ckpt)
+        trainable_module.load_state_dict(ckpt, strict=strict)
     return trainable_module
 
 
@@ -118,11 +118,14 @@ def train(
         trainer.fit(trainable, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
 
-def inference(ckpt_path, test_img_dir_path, dstdir="vis", output_channels=3):
+def inference(ckpt_path, test_img_dir_path, dstdir="vis", output_channels=3, model='vitregs',
+    dummy_decoder=False,
+               ):
+
     assert Path(dstdir).exists()
     ckpt_path = Path(ckpt_path)
-    net = get_network(output_channels=output_channels)
-    plmodel = TrainableModule(net, loss_fn=None)
+    net = get_network(output_channels=output_channels, dummy=dummy_decoder, model=model)
+    plmodel = TrainableModule(net, loss_fn=None,)
     plmodel = load_from_ckpt(plmodel, ckpt_path)
     plmodel.eval()
 
