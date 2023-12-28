@@ -1,4 +1,5 @@
 print("importing external...")
+import copy
 from pathlib import Path
 import tqdm
 from PIL import Image
@@ -50,12 +51,14 @@ def train(
     model='vitregs',
     overfit=False,
     clean=False,
+    max_n_masks=False,
 ):
+    extra_hparams = copy.deepcopy(locals())
     print("getting model")
     net = get_network(output_channels=output_channels, dummy=dummy_decoder, model=model)
 
     print("getting dataloaders")
-    train_ds, val_ds = get_train_val_ds(datadir)
+    train_ds, val_ds = get_train_val_ds(datadir, max_n_masks=max_n_masks)
 
     if overfit:
         train_batch = custom_collate([train_ds[i] for i in range(batch_size)])
@@ -98,21 +101,7 @@ def train(
         )
     trainable = load_from_ckpt(trainable, ckpt_path)
 
-    extra_hparams = dict(
-        dummy_decoder=dummy_decoder,
-        batch_size=batch_size,
-        output_channels=output_channels,
-        comment=comment,
-        max_lr=max_lr,
-        weight_decay=weight_decay,
-        total_steps=epochs,
-        overfit=overfit,
-    )
-    if not overfit:
-        extra_hparams = extra_hparams | dict(
-            train_size=train_size,
-            val_size=val_size,
-        )
+
     trainer = Trainer(
         max_epochs=epochs,
         fast_dev_run=dev,
