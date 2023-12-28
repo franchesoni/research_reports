@@ -209,7 +209,7 @@ class Trainer:
                     global_step=self.global_step,
                     return_input_output_for_logging=batch_idx == 0
                     and (
-                        self.global_step % (epoch * len(train_dataloaders) // 10)
+                        self.global_step % ( len(train_dataloaders) // 10)
                     ),  # log train images every 10% of training
                 )
                 self.log("train_loss", loss, self.global_step)

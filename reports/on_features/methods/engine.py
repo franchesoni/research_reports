@@ -95,10 +95,11 @@ def train(
     val_size=10,
     dummy_decoder=False,
     max_lr=1e-2,
-    weight_decay=5e-5,
+    weight_decay=1e-5,
+    gpu_number=0,
 ):
     print("getting model")
-    net = get_network(output_channels=output_channels, dummy=dummy_decoder)
+    net = get_network(output_channels=output_channels, dummy=dummy_decoder, model='vitregs')
 
     print("getting dataloaders")
     train_ds, val_ds = get_train_val_ds(datadir)
@@ -131,7 +132,6 @@ def train(
     trainable = TrainableModule(
         net,
         loss_fn=loss_fn,
-        comment=comment,
         max_lr=max_lr,
         weight_decay=weight_decay,
         total_steps=total_steps
@@ -142,7 +142,7 @@ def train(
         max_epochs=epochs,
         # fast_dev_run=dev,
         val_check_interval=val_check_interval,
-        device="cuda:1" if torch.cuda.is_available() else "cpu",
+        device=f"cuda:{gpu_number}" if torch.cuda.is_available() else "cpu",
         extra_hparams=dict(
             train_size=train_size,
             val_size=val_size,
