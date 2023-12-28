@@ -110,7 +110,7 @@ def generate_dataset_v2(
 
 
 class RectangleDataset(torch.utils.data.Dataset):
-    def __init__(self, datadir):
+    def __init__(self, datadir, max_n_masks=False):
         self.datadir = Path(datadir)
         image_files = sorted(self.datadir.glob("image_*.png"))
         mask_files = sorted(self.datadir.glob("mask_*.png"))
@@ -123,6 +123,7 @@ class RectangleDataset(torch.utils.data.Dataset):
             ]
         )
         self.sample_paths = list(zip(image_files, mask_files))
+        self.max_n_masks = max_n_masks
 
     def __len__(self):
         return len(self.sample_paths)
@@ -136,9 +137,12 @@ class RectangleDataset(torch.utils.data.Dataset):
 
     def mask_as_batch(self, mask):
         """Convert mask from a gray image to a batch of binary masks"""
-        return (
+        ret = (
             torch.nn.functional.one_hot(torch.from_numpy(mask).to(torch.int64)) > 0
         ).permute(2, 0, 1)[1:]
+        if self.max_n_masks:
+            ret = ret[: self.max_n_masks] if random.random() < 0.5 else ret[-self.max_n_masks :]
+        return ret
 
     def to_tensor(self, sample):
         """Convert sample from numpy to torch"""
@@ -148,7 +152,7 @@ class RectangleDataset(torch.utils.data.Dataset):
         return (image, mask)
 
 
-def get_train_val_ds(datadir, shortload=False):
+def get_train_val_ds(datadir, shortload=False, max_n_masks=False):
     if shortload:
         traindsfile, valdsfile = Path(f"runs/trainds.pkl"), Path(
             f"runs/valds.pkl"
@@ -161,8 +165,9 @@ def get_train_val_ds(datadir, shortload=False):
                 val_ds = pickle.load(f)
             return train_ds, val_ds
 
-    train_ds = RectangleDataset(datadir)
+    train_ds = RectangleDataset(datadir, max_n_masks=max_n_masks)
     val_ds = copy.deepcopy(train_ds)
+    val_ds.max_n_masks = False
     train_ds.sample_paths = train_ds.sample_paths[
         : -min(len(train_ds.sample_paths) // 10, 1000)
     ]
