@@ -107,7 +107,7 @@ def mean(l, ignore_nan=False, empty=0):
 
 class SpatialEmbLoss(nn.Module):
     def __init__(
-        self, to_center=True, n_sigma=1, foreground_weight=1, img_size=(1024, 2048)
+        self, to_center=True, n_sigma=1, foreground_weight=1, img_size=(1024, 2048), device="cuda" if torch.cuda.is_available() else "cpu"
     ):
         super().__init__()
 
@@ -126,6 +126,7 @@ class SpatialEmbLoss(nn.Module):
         cols = torch.linspace(0, 1, n_cols).view(1, 1, -1).expand(1, n_rows, n_cols)
         rows = torch.linspace(0, 1, n_rows).view(1, -1, 1).expand(1, n_rows, n_cols)
         xym = torch.cat((rows, cols), 0)
+        xym = xym.to(device)
         xym.requires_grad = False
         self.register_buffer("xym", xym)
 
