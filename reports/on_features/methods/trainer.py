@@ -77,6 +77,7 @@ class TrainableModule(torch.nn.Module):
         self.total_steps = total_steps
         self.weight_decay = weight_decay
         self.sing = sing
+        self.metric = None
 
     def forward(self, x):
         return self.model(x)
@@ -88,7 +89,8 @@ class TrainableModule(torch.nn.Module):
         y_hat = self.model(x)
         # check if 'image' is an argument name in self.loss_fn
         if hasattr(self.loss_fn, 'forward') and "image" in self.loss_fn.forward.__code__.co_varnames:
-            loss = self.loss_fn(y_hat, y, image=x, print_iou=return_input_output_for_logging)
+            loss, iou = self.loss_fn(y_hat, y, image=x)
+            self.metric = iou
         else:
             loss = self.loss_fn(y_hat, y)
         if return_input_output_for_logging:
@@ -103,12 +105,14 @@ class TrainableModule(torch.nn.Module):
         return_input_output_for_logging=True,
         return_many_losses=True,
     ):
+        print('validating...')
         # step
         x, y = batch
         y_hat = self.model(x)
         # check if 'image' is an argument name in self.loss_fn
         if hasattr(self.loss_fn, 'forward') and "image" in self.loss_fn.forward.__code__.co_varnames:
-            loss = self.loss_fn(y_hat, y, image=x, print_iou=True)
+            loss, iou = self.loss_fn(y_hat, y, image=x)
+            self.metric = iou
         else:
             loss = self.loss_fn(y_hat, y)
 
@@ -204,15 +208,16 @@ class Trainer:
         return model, optimizer, scheduler, hparams, batch_idx_width, epoch_width
 
     def update_step(self, model, optimizer, scheduler, batch, log_input_output_flag=False):
-        current_lr = optimizer.param_groups[0]["lr"]
-        self.log("lr", current_lr, self.global_step)
         loss, x, y_hat = model.training_step(
             batch,
             batch_idx=None,
             global_step=self.global_step,
             return_input_output_for_logging=log_input_output_flag
         )
-        self.log("train_loss", loss, self.global_step)
+        current_lr = optimizer.param_groups[0]["lr"]
+        self.log("lr", current_lr, self.global_step)
+        self.log("train/loss", loss, self.global_step)
+        self.log("train/iou", model.metric, self.global_step)
         check_for_nan(loss, model, batch)
         optimizer.zero_grad()
         loss.backward()
@@ -221,6 +226,7 @@ class Trainer:
         self.global_step += 1
 
         if x is not None and y_hat is not None:
+            print('saving images...')
             log_input_output("train", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
 
         return loss, current_lr
@@ -229,6 +235,7 @@ class Trainer:
     def fit(self, model, train_dataloaders, val_dataloaders, compile=False):
         dllen = len(train_dataloaders)
         model, optimizer, scheduler, hparams, batch_idx_width, epoch_width = self.prefit(model, dllen, compile)
+        total_steps = self.max_epochs * dllen
 
 
         for epoch in range(self.max_epochs):
@@ -236,7 +243,7 @@ class Trainer:
             model.train()
             for batch_idx, batch in enumerate(train_dataloaders):
                 batch = [item.to(self.device) for item in batch]
-                loss, current_lr = self.update_step(model, optimizer, scheduler, batch, log_input_output_flag=batch_idx==0 or epoch % (self.max_epochs // 10) == 0 or epoch == self.max_epochs - 1)
+                loss, current_lr = self.update_step(model, optimizer, scheduler, batch, log_input_output_flag=self.global_step == 0 or self.global_step % (total_steps // 10) == 0 or self.global_step == total_steps - 1)
 
                 print(
                     f"{batch_idx / dllen:.4%}".ljust(8)
@@ -343,6 +350,7 @@ class Trainer:
                     check_for_nan(loss, model, batch)
                     losses_placeholder["main_loss"] += loss
                     for loss_name, loss_val in losses.items():
+                        loss_val = loss_val[0] if isinstance(loss_val, tuple) else loss_val
                         losses_placeholder[loss_name] += loss_val
                     # optionally log input output
                     if x is not None and y_hat is not None:
@@ -362,7 +370,10 @@ class Trainer:
             loss_name: loss_val / len(val_data)
             for loss_name, loss_val in losses_placeholder.items()
         } if use_dataloader else losses | {'main_loss': loss}
+        if model.metric is not None:
+            losses_placeholder['iou'] = model.metric
         for loss_name, loss_val in losses_placeholder.items():
+            loss_val = loss_val[0] if isinstance(loss_val, tuple) else loss_val
             self.log(f"val/{loss_name}", loss_val, self.global_step)
 
         print(" " * 79, end="\r")
