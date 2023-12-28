@@ -80,6 +80,7 @@ class TrainableModule(torch.nn.Module):
         max_lr=1e-2,
         weight_decay=5e-5,
         total_steps=1000,
+        sing=False,
     ):
         super().__init__()
         self.model = model
@@ -87,6 +88,7 @@ class TrainableModule(torch.nn.Module):
         self.max_lr = max_lr
         self.total_steps = total_steps
         self.weight_decay = weight_decay
+        self.sing = sing
 
     def forward(self, x):
         return self.model(x)
@@ -138,7 +140,8 @@ class TrainableModule(torch.nn.Module):
         return loss, many_losses, None, None
 
     def configure_optimizers(self):
-        optim = SING(
+        optim_class = SING if self.sing else torch.optim.AdamW
+        optim = optim_class(
             self.parameters(), lr=self.max_lr // 10, weight_decay=self.weight_decay
         )
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -183,7 +186,7 @@ class Trainer:
     def log(self, name, value, step):
         self.logger.add_scalar(name, value, step)
 
-    def fit(self, model, train_dataloaders, val_dataloaders, compile=False):
+    def prefit(self, model, dllen, compile=False):
         model.to(self.device)
         if compile:
             print("compiling...")
@@ -204,40 +207,44 @@ class Trainer:
             json.dump(hparams, f, indent=4)
 
         # logging variables
-        dllen = len(train_dataloaders)
-        epoch_width = len(str(self.max_epochs))
         batch_idx_width = len(str(dllen))
+        epoch_width = len(str(self.max_epochs))
+        return model, optimizer, scheduler, hparams, batch_idx_width, epoch_width
+
+    def update_step(self, model, optimizer, scheduler, batch, log_input_output=False):
+        current_lr = optimizer.param_groups[0]["lr"]
+        self.log("lr", current_lr, self.global_step)
+        loss, x, y_hat = model.training_step(
+            batch,
+            batch_idx=None,
+            global_step=self.global_step,
+            return_input_output_for_logging=log_input_output
+        )
+        self.log("train_loss", loss, self.global_step)
+        check_for_nan(loss, model, batch)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        self.global_step += 1
+
+        if x is not None and y_hat is not None:
+            log_input_output("train", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
+
+        return loss, current_lr
+        
+
+    def fit(self, model, train_dataloaders, val_dataloaders, compile=False):
+        dllen = len(train_dataloaders)
+        model, optimizer, scheduler, hparams, batch_idx_width, epoch_width = self.prefit(model, dllen, compile)
+
 
         for epoch in range(self.max_epochs):
             # Training Phase
+            model.train()
             for batch_idx, batch in enumerate(train_dataloaders):
-                model.train()
                 batch = [item.to(self.device) for item in batch]
-                current_lr = optimizer.param_groups[0]["lr"]
-                self.log("lr", current_lr, self.global_step)
-                loss, x, y_hat = model.training_step(
-                    batch,
-                    batch_idx,
-                    global_step=self.global_step,
-                    return_input_output_for_logging=batch_idx == 0
-                    and (
-                        self.global_step % ( len(train_dataloaders) // 10)
-                    ),  # log train images every 10% of training
-                )
-                self.log("train_loss", loss, self.global_step)
-                check_for_nan(loss, model, batch)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                scheduler.step()
-                self.global_step += 1
-
-                if x is not None and y_hat is not None:
-                    log_input_output("train", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
-
-                if self.fast_dev_run:
-                    print("fast_dev_run, one batch only")
-                    break
+                loss, current_lr = self.update_step(model, optimizer, scheduler, batch, log_input_output=batch_idx==0 or epoch % (self.max_epochs // 10) == 0 or epoch == self.max_epochs - 1)
 
                 print(
                     f"{batch_idx / dllen:.4%}".ljust(8)
@@ -247,6 +254,12 @@ class Trainer:
                     + f", lr: {current_lr:.3e}",
                     end="\r",
                 )
+
+                if self.fast_dev_run:
+                    print("fast_dev_run, one batch only")
+                    break
+
+
                 # Validation Check at Specified Batch Interval
                 if (
                     self.val_check_interval
@@ -257,6 +270,7 @@ class Trainer:
                         model,
                         val_dataloaders,
                     )
+                    model.train()
 
             # End of Epoch Validation Check if Interval Not Specified
             if self.val_check_interval is None:
@@ -272,135 +286,26 @@ class Trainer:
         # log hparams
         self.logger.add_hparams(hparams, {})
 
-    def _validate(self, model, val_dataloader):
-        model.eval()
-        val_loss = 0
-        with torch.no_grad():
-            losses_placeholder = {"main_loss": 0} | {
-                loss_name: 0 for loss_name in losses_dict.keys()
-            }
-            for batch_idx, batch in enumerate(val_dataloader):
-                batch = [item.to(self.device) for item in batch]
-                loss, losses, x, y_hat = model.validation_step(
-                    batch,
-                    batch_idx,
-                    global_step=self.global_step,
-                    return_input_output_for_logging=batch_idx == 0,
-                )
-                check_for_nan(loss, model, batch)
-                losses_placeholder["main_loss"] += loss
-                for loss_name, loss_val in losses.items():
-                    losses_placeholder[loss_name] += loss_val
-                # optionally log input output
-                if x is not None and y_hat is not None:
-                    log_input_output("val", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
-
-        losses_placeholder = {
-            loss_name: loss_val / len(val_dataloader)
-            for loss_name, loss_val in losses_placeholder.items()
-        }
-        for loss_name, loss_val in losses_placeholder.items():
-            self.log(f"val/{loss_name}", loss_val, self.global_step)
-
-        val_loss = val_loss / len(val_dataloader)
-        print(" " * 100, end="\r")
-        print(f"Global Step: {self.global_step}, Validation Loss: {val_loss:.4f}")
-
-        # Checkpointing Last Validated Model
-        last_validated_model_path = os.path.join(
-            self.logger.log_dir, "last_validated_model.pth"
-        )
-        torch.save(model.state_dict(), last_validated_model_path)
-
-        # Checkpointing Best Model
-        if val_loss < self.best_val_loss:
-            self.best_val_loss = val_loss
-            best_model_path = os.path.join(self.logger.log_dir, "best_model.pth")
-            torch.save(model.state_dict(), best_model_path)
-
-
-
-
-class Overfitter:
-    def __init__(
-        self,
-        total_steps=24,
-        val_check_interval=None,
-        device=None,
-        comment="",
-        extra_hparams={},
-    ):
-        # training variables
-        self.total_steps = total_steps
-        self.val_check_interval = val_check_interval
-        self.device = device
-        self.best_val_loss = float("inf")
-        self.global_step = 0
-        # logging variables
-        self.hparams = extra_hparams
-        self.logger = SummaryWriter(comment=comment)
-        self.img_dstdir = Path(self.logger.get_logdir()) / "images"
-        self.img_dstdir.mkdir(parents=True, exist_ok=True)
-        self.out_dstdir = self.img_dstdir.parent / "outputs"
-        self.out_dstdir.mkdir(parents=True, exist_ok=True)
-        self.last_global_step = 0
-
-    def log(self, name, value, step):
-        self.logger.add_scalar(name, value, step)
 
     def overfit(self, model, train_batch, val_batch, compile=False):
-        model.to(self.device)
-        if compile:
-            print("compiling...")
-            model.model = torch.compile(model.model)
-            print("compiled.")
-        optimizer, scheduler = model.configure_optimizers()
-
-        # save hparams
-        hparams = {
-            "model": str(model.model.__class__.__name__),
-            "loss_fn": str(model.loss_fn),
-            "total_steps": self.total_steps,
-            "val_check_interval": self.val_check_interval,
-        } | self.hparams
-        print("hparams:", hparams)
-        with open(os.path.join(self.logger.log_dir, "hparams.txt"), "w") as f:
-            json.dump(hparams, f, indent=4)
-
-        step_width = len(str(self.total_steps))
+        dllen = len(train_batch)
+        model, optimizer, scheduler, hparams, batch_idx_width, epoch_width = self.prefit(model, dllen, compile)
 
         batch = [item.to(self.device) for item in train_batch]
         val_batch = [item.to(self.device) for item in val_batch]
-        for step in range(self.total_steps):
-            model.train()
-            current_lr = optimizer.param_groups[0]["lr"]
-            self.log("lr", current_lr, self.global_step)
-            loss, x, y_hat = model.training_step(
-                batch,
-                batch_idx=0,
-                global_step=self.global_step,
-                return_input_output_for_logging=(self.global_step
-                % (self.total_steps // 10)
-                == 0) or (step == self.total_steps - 1),
-            )
-            self.log("train_loss", loss, self.global_step)
-            check_for_nan(loss, model, batch)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
-            self.global_step += 1
 
-            if x is not None and y_hat is not None:
-                log_input_output("train", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
+        model.train()
+        for epoch in range(self.max_epochs):
+            loss, current_lr = self.update_step(model, optimizer, scheduler, batch)
 
             print(
-                f"{step / self.total_steps:.4%}".ljust(8)
-                + f"of training at step {step:{step_width}}, ".ljust(15)
+                f"{epoch / self.max_epochs:.4%}".ljust(8)
+                + f"of training at step {epoch:{epoch_width}}, ".ljust(15)
                 + f"Train loss: {loss.item():.3e}"
                 + f", lr: {current_lr:.3e}",
                 end="\r",
             )
+
             # Validation Check at Specified Batch Interval
             if (
                 self.val_check_interval
@@ -411,8 +316,9 @@ class Overfitter:
                     model,
                     val_batch,
                 )
+                model.train()
 
-        # last validation
+
         self._validate(
             model,
             val_batch,
@@ -421,22 +327,67 @@ class Overfitter:
         # log hparams
         self.logger.add_hparams(hparams, {})
 
-    def _validate(self, model, val_batch):
+
+
+    def _validate(self, model: TrainableModule, val_data):
+        # check if val_data is dataloader or batch
+        use_dataloader = isinstance(val_data, torch.utils.data.DataLoader)
         model.eval()
         val_loss = 0
         with torch.no_grad():
-            loss, losses, x, y_hat = model.validation_step(
-                val_batch,
-                batch_idx=0,
-                global_step=self.global_step,
-                return_input_output_for_logging=True,
-            )
-            check_for_nan(loss, model, val_batch)
-        self.log("val/main_loss", loss, self.global_step)
-        for loss_name, loss_val in losses.items():
+            if use_dataloader:
+                losses_placeholder = {"main_loss": 0} | {
+                    loss_name: 0 for loss_name in losses_dict.keys()
+                }
+                for batch_idx, batch in enumerate(val_data):
+                    batch = [item.to(self.device) for item in batch]
+                    loss, losses, x, y_hat = model.validation_step(
+                        batch,
+                        batch_idx,
+                        global_step=self.global_step,
+                        return_input_output_for_logging=batch_idx == 0,
+                    )
+                    check_for_nan(loss, model, batch)
+                    losses_placeholder["main_loss"] += loss
+                    for loss_name, loss_val in losses.items():
+                        losses_placeholder[loss_name] += loss_val
+                    # optionally log input output
+                    if x is not None and y_hat is not None:
+                        log_input_output("val", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
+            else:
+                loss, losses, x, y_hat = model.validation_step(
+                    val_data,  # should be on device
+                    batch_idx=None,
+                    global_step=self.global_step,
+                    return_input_output_for_logging=True,
+                )
+                # optionally log input output
+                if x is not None and y_hat is not None:
+                    log_input_output("val", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
+
+        losses_placeholder = {
+            loss_name: loss_val / len(val_data)
+            for loss_name, loss_val in losses_placeholder.items()
+        } if use_dataloader else losses | {'main_loss': loss}
+        for loss_name, loss_val in losses_placeholder.items():
             self.log(f"val/{loss_name}", loss_val, self.global_step)
-        if x is not None and y_hat is not None:
-            log_input_output("val", x, y_hat, self.global_step, self.img_dstdir, self.out_dstdir)
 
         print(" " * 79, end="\r")
-        print(f"Global Step: {self.global_step}, Validation Loss: {val_loss:.4f}")
+        print(f"Global Step: {self.global_step}, Validation Loss: {val_loss:.4e}")
+
+        if use_dataloader:  # not overfitting
+            # Checkpointing Last Validated Model
+            last_validated_model_path = os.path.join(
+                self.logger.log_dir, "last_validated_model.pth"
+            )
+            torch.save(model.state_dict(), last_validated_model_path)
+
+            # Checkpointing Best Model
+            if val_loss < self.best_val_loss:
+                self.best_val_loss = val_loss
+                best_model_path = os.path.join(self.logger.log_dir, "best_model.pth")
+                torch.save(model.state_dict(), best_model_path)
+
+
+
+

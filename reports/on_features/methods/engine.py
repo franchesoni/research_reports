@@ -29,57 +29,6 @@ def load_from_ckpt(trainable_module, ckpt_path):
         trainable_module.load_state_dict(ckpt)
     return trainable_module
 
-def overfit(
-    datadir,
-    loss_fn_name,
-    comment,
-    output_channels=3,
-    ckpt_path=None,
-    batch_size=8,
-    total_steps=9999,
-    val_check_interval=None,
-    dummy_decoder=False,
-    max_lr=1e-2,
-    weight_decay=5e-5,
-    gpu_number=0,
-):
-    print("getting model")
-    net = get_network(output_channels=output_channels, dummy=dummy_decoder)
-
-    print("getting dataloaders")
-    train_ds, val_ds = get_train_val_ds(datadir)
-
-    train_batch = custom_collate([train_ds[i] for i in range(batch_size)])
-    val_batch = custom_collate([val_ds[i] for i in range(batch_size)])
-
-    print("initializing model and trainer")
-    loss_fn = losses_dict[loss_fn_name]
-    trainable = TrainableModule(
-        net,
-        loss_fn=loss_fn,
-        max_lr=max_lr,
-        weight_decay=weight_decay,
-        total_steps=total_steps
-        )
-    trainable = load_from_ckpt(trainable, ckpt_path)
-
-    fitter = Overfitter(
-        total_steps=total_steps,
-        val_check_interval=val_check_interval,
-        device=f"cuda:{gpu_number}" if torch.cuda.is_available() else "cpu",
-        comment=comment,
-        extra_hparams=dict(
-            dummy_decoder=dummy_decoder,
-            batch_size=batch_size,
-            output_channels=output_channels,
-            comment=comment,
-            max_lr=max_lr,
-            weight_decay=weight_decay,
-            total_steps=total_steps,
-    )
-    )
-    print("training")
-    fitter.overfit(trainable, train_batch, val_batch)
 
 def train(
     datadir,
@@ -96,67 +45,86 @@ def train(
     dummy_decoder=False,
     max_lr=1e-2,
     weight_decay=1e-5,
+    sing=False,
     gpu_number=0,
+    model='vitregs',
+    overfit=False,
 ):
     print("getting model")
-    net = get_network(output_channels=output_channels, dummy=dummy_decoder, model='vitregs')
+    net = get_network(output_channels=output_channels, dummy=dummy_decoder, model=model)
 
     print("getting dataloaders")
     train_ds, val_ds = get_train_val_ds(datadir)
-    train_ds.sample_paths = train_ds.sample_paths[:train_size]
-    val_ds.sample_paths = val_ds.sample_paths[:val_size]
 
-    train_dl = torch.utils.data.DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-        drop_last=True,
-        num_workers=8 if not dev else 0,
-        pin_memory=True,
-        persistent_workers=not dev,
-        collate_fn=custom_collate,
-    )
-    val_dl = torch.utils.data.DataLoader(
-        val_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=8 if not dev else 0,
-        pin_memory=False,
-        collate_fn=custom_collate,
-        drop_last=False,
-    )
+    if overfit:
+        train_batch = custom_collate([train_ds[i] for i in range(batch_size)])
+        val_batch = custom_collate([val_ds[i] for i in range(batch_size)])
+    else:
+        train_ds.sample_paths = train_ds.sample_paths[:train_size]
+        val_ds.sample_paths = val_ds.sample_paths[:val_size]
+        train_dl = torch.utils.data.DataLoader(
+            train_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=True,
+            num_workers=8 if not dev else 0,
+            pin_memory=True,
+            persistent_workers=not dev,
+            collate_fn=custom_collate,
+        )
+        val_dl = torch.utils.data.DataLoader(
+            val_ds,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=8 if not dev else 0,
+            pin_memory=False,
+            collate_fn=custom_collate,
+            drop_last=False,
+        )
+
+
 
     print("initializing model and trainer")
-    total_steps = len(train_dl) * epochs
+    total_steps = epochs if overfit else len(train_dl) * epochs
     loss_fn = losses_dict[loss_fn_name]
     trainable = TrainableModule(
         net,
         loss_fn=loss_fn,
         max_lr=max_lr,
         weight_decay=weight_decay,
-        total_steps=total_steps
+        total_steps=total_steps,
+        sing=sing,
         )
     trainable = load_from_ckpt(trainable, ckpt_path)
 
-    trainer = Trainer(
-        max_epochs=epochs,
-        # fast_dev_run=dev,
-        val_check_interval=val_check_interval,
-        device=f"cuda:{gpu_number}" if torch.cuda.is_available() else "cpu",
-        extra_hparams=dict(
+    extra_hparams = dict(
+        dummy_decoder=dummy_decoder,
+        batch_size=batch_size,
+        output_channels=output_channels,
+        comment=comment,
+        max_lr=max_lr,
+        weight_decay=weight_decay,
+        total_steps=epochs,
+        overfit=overfit,
+    )
+    if not overfit:
+        extra_hparams = extra_hparams | dict(
             train_size=train_size,
             val_size=val_size,
-            dummy_decoder=dummy_decoder,
-            batch_size=batch_size,
-            output_channels=output_channels,
-            comment=comment,
-            max_lr=max_lr,
-            weight_decay=weight_decay,
-            total_steps=total_steps,
-    )
+        )
+    trainer = Trainer(
+        max_epochs=epochs,
+        fast_dev_run=dev,
+        val_check_interval=val_check_interval,
+        device=f"cuda:{gpu_number}" if torch.cuda.is_available() else "cpu",
+        comment=comment,
+        extra_hparams=extra_hparams,
     )
     print("training")
-    trainer.fit(trainable, train_dataloaders=train_dl, val_dataloaders=val_dl)
+    if overfit:
+        trainer.overfit(trainable, train_batch, val_batch)
+    else:
+        trainer.fit(trainable, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
 
 def inference(ckpt_path, test_img_dir_path, dstdir="vis", output_channels=3):
@@ -191,4 +159,4 @@ if __name__ == "__main__":
     print("handling args")
     from fire import Fire
 
-    Fire({"train": train, "inference": inference, "overfit": overfit})
+    Fire({"train": train, "inference": inference, "overfit": train})
