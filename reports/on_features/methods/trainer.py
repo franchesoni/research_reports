@@ -3,9 +3,7 @@ import os
 import torch
 import json
 from torch.utils.tensorboard import SummaryWriter
-import numpy as np
-from PIL import Image
-from extras.utils import get_current_git_commit, clean_dir
+from extras.utils import get_current_git_commit, clean_dir, save_tensor_as_image
 
 
 from losses import losses_dict
@@ -39,37 +37,25 @@ def minmax(tensor):
         return (tensor - tensor.min()) / (tensor.max() - tensor.min())
 
 
-def save_tensor_as_image(dstfile, tensor, global_step):
-    tensor = tensor.detach().cpu().numpy()  # torch -> numpy
-    tensor = tensor.transpose(1, 2, 0)  # CHW -> HWC
-    tensor = minmax(tensor)
-    tensor = tensor * 255.0
-    tensor = tensor.clip(0, 255).astype(np.uint8)
-    tensor = tensor if tensor.shape[2] > 1 else tensor[..., 0]
-    image = Image.fromarray(tensor[..., :3])
-    dstfile = Path(dstfile)
-    dstfile = (dstfile.parent / (dstfile.stem + "_" + str(global_step))).with_suffix(
-        ".jpg"
-    )
-    image.save(dstfile)
+
 
 def log_input_output(name, x, y_hat, global_step, img_dstdir, out_dstdir):
     for i in range(len(x)):
         save_tensor_as_image(
-            img_dstdir / f"input_{name}_{str(i).zfill(2)}",
             x[i],
+            img_dstdir / f"input_{name}_{str(i).zfill(2)}",
             global_step=global_step,
         )
         for c in range(y_hat.shape[1]):
             save_tensor_as_image(
-                out_dstdir / f"pred_channel_{name}_{str(i).zfill(2)}_{c}",
                 y_hat[i, c : c + 1],
+                out_dstdir / f"pred_channel_{name}_{str(i).zfill(2)}_{c}",
                 global_step=global_step,
             )
         # log color image
         save_tensor_as_image(
-            out_dstdir / f"pred_3channels_{name}_{str(i).zfill(2)}",
             y_hat[i][:3],
+            out_dstdir / f"pred_3channels_{name}_{str(i).zfill(2)}",
             global_step=global_step,
         )
 
@@ -217,14 +203,14 @@ class Trainer:
         epoch_width = len(str(self.max_epochs))
         return model, optimizer, scheduler, hparams, batch_idx_width, epoch_width
 
-    def update_step(self, model, optimizer, scheduler, batch, log_input_output=False):
+    def update_step(self, model, optimizer, scheduler, batch, log_input_output_flag=False):
         current_lr = optimizer.param_groups[0]["lr"]
         self.log("lr", current_lr, self.global_step)
         loss, x, y_hat = model.training_step(
             batch,
             batch_idx=None,
             global_step=self.global_step,
-            return_input_output_for_logging=log_input_output
+            return_input_output_for_logging=log_input_output_flag
         )
         self.log("train_loss", loss, self.global_step)
         check_for_nan(loss, model, batch)
@@ -250,7 +236,7 @@ class Trainer:
             model.train()
             for batch_idx, batch in enumerate(train_dataloaders):
                 batch = [item.to(self.device) for item in batch]
-                loss, current_lr = self.update_step(model, optimizer, scheduler, batch, log_input_output=batch_idx==0 or epoch % (self.max_epochs // 10) == 0 or epoch == self.max_epochs - 1)
+                loss, current_lr = self.update_step(model, optimizer, scheduler, batch, log_input_output_flag=batch_idx==0 or epoch % (self.max_epochs // 10) == 0 or epoch == self.max_epochs - 1)
 
                 print(
                     f"{batch_idx / dllen:.4%}".ljust(8)
@@ -304,7 +290,7 @@ class Trainer:
 
         model.train()
         for epoch in range(self.max_epochs):
-            loss, current_lr = self.update_step(model, optimizer, scheduler, batch)
+            loss, current_lr = self.update_step(model, optimizer, scheduler, batch, log_input_output_flag=epoch % (self.max_epochs // 10) == 0 or epoch == self.max_epochs - 1 or epoch == 0)
 
             print(
                 f"{epoch / self.max_epochs:.4%}".ljust(8)

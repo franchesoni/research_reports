@@ -217,24 +217,3 @@ def calculate_iou(pred, label):
         iou = intersection.item() / union.item()
         return iou
 
-def save(tensor, name):
-    from PIL import Image
-
-    def minmaxnorm(x):
-        return (x - x.min()) / (x.max() - x.min())
-    
-    tensor = minmaxnorm(tensor)
-    tensor = (tensor * 255).to(torch.uint8)
-    tensor = tensor.squeeze()  # C, H*W
-    tensor = tensor.reshape(-1, 224, 224)  # C, H, W
-    if tensor.shape[0] == 1:
-        tensor = tensor[0]
-    elif tensor.shape[0] == 2:
-        tensor = torch.stack([tensor[0], torch.zeros_like(tensor[0]), tensor[1]], dim=0)
-        tensor = tensor.permute(1, 2, 0)
-    elif tensor.shape[0] >= 3:
-        tensor = tensor[:3]
-        tensor = tensor.permute(1, 2, 0)
-    tensor = tensor.cpu().numpy()
-    Image.fromarray(tensor).save(name)
-
