@@ -9,7 +9,6 @@ from extras.utils import clean_dir
 
 
 
-emdloss = SpatialEmbLoss(to_center=False, img_size=(224,224))
 
 
 
@@ -228,7 +227,7 @@ losses_dict = {
     "simplest": simplest_loss,
     "hinge": simplest_hinge,
     "offset": offset_to_center,
-    "vangool": emdloss,
+    "vangool": SpatialEmbLoss(to_center=False, img_size=(224,224)),
     "global_var": global_variance,
     'ours': OursLoss(),
 }
