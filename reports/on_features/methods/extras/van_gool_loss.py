@@ -135,8 +135,8 @@ class SpatialEmbLoss(nn.Module):
         masks,
         per_instance=True,
         w_inst=1,
-        w_var=10,
-        w_seed=1,
+        w_var=0.01,
+        w_seed=0.01,
         print_iou=False,
         exp_s=True,
         print_intermediate=True,
@@ -191,17 +191,9 @@ class SpatialEmbLoss(nn.Module):
             dim=3, keepdim=True
         )  # B, M, 1, 1
 
-
-
         loss = w_inst * instance_loss + w_var * var_loss + w_seed * seed_loss.mean()
 
         if print_intermediate:
-            print("spatial_emb", torch.norm(spatial_emb))
-            print("seed map", torch.norm(seed_map))
-            print('max spatial', torch.max(spatial_emb))
-            print('max seed', torch.max(seed_map))
-            print("s after exp", torch.norm(s))
-            print("dist", torch.norm(dist))
             print("instance_loss", torch.norm(instance_loss))
             print("seed_loss", torch.norm(seed_loss))
             print("var_loss", torch.norm(var_loss))
