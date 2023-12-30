@@ -172,8 +172,6 @@ More details can be found in the code https://github.com/davyneven/SpatialEmbedd
 
 **Instance Segmentation of Biological Images Using Harmonic Embeddings**: they regress the center but the center is expressed as frequency features.
 
-
-
 **CLUSTSEG: Clustering for Universal Segmentation**: they need queries, superpixels are worse than SLIC, what?
 
 **Segment Anything**: a promptable segmentation model. You put a positive click, you get three masks. If you put clicks everywhere and postprocess the masks you can get a segmentation of the image.
@@ -190,4 +188,8 @@ Some of them require an activation function (e.g. sigmoid) to control the output
 Some of them involve some random sampling when others don't. A formulation I find general is to predict the residual for position and for color and maybe a couple of other vectors too.
 
 Therefore the losses involve images and masks and we should overfit one mask per image (or more) before increasing the number of examples. 
+
+# Our loss
+
+Similarly to clustering bandwidh loss but using color and free values. w=We predict: (offst row, offset col, offset r, of g , of b, a, b, c)
 
